@@ -1,0 +1,18 @@
+gradient_clip=10
+mini_batch=100
+optimizer='sgd'
+
+[config]
+n_z=128
+
+[config_critic]
+mode='cnn'
+    [parameter]
+    batch_norm=true
+    batch_norm_decay=0.999
+
+[config_generator]
+mode='cnn'
+    [parameter]
+    batch_norm=true
+    batch_norm_decay=0.999
