@@ -1,6 +1,6 @@
 gradient_clip=10
 mini_batch=100
-optimizer='sgd'
+optimizer='adam'
 
 [config]
 n_z=128

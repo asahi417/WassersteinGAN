@@ -62,6 +62,7 @@ class TFRecorder:
                  validation_split: float = None):
 
         original_shape = 128 / 2 ** down_scale
+        self.my_print('shape: %i' % original_shape)
 
         image_files = glob('%s/*.png' % self.path_to_dataset)
         image_files = shuffle_data(image_files, seed=shuffle_seed)
@@ -101,13 +102,12 @@ class TFRecorder:
                     ex = tf.train.Example(
                         features=tf.train.Features(
                             feature=dict(
-                                shape=tf.train.Feature(int64_list=tf.train.Int64List(value=img.shape)),
                                 image=tf.train.Feature(bytes_list=tf.train.BytesList(value=[img.tostring()]))
                             )))
                     writer.write(ex.SerializeToString())
 
         # apply full data
-        # write(image_files, '%s-%i.tfrecord' % (self.path_to_save, original_shape), mode='full')
+        write(image_files, '%s-%i.tfrecord' % (self.path_to_save, original_shape), mode='full')
 
         if validation_split is not None:
             raise_error(validation_split > 1, 'validation_split has to be in [0,1]')

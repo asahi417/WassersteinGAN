@@ -12,7 +12,7 @@ class WassersteinGAN:
                  config_critic: dict = None,
                  config_generator: dict = None,
                  gradient_clip: int = 10,
-                 mini_batch: int = 10,
+                 batch: int = 10,
                  optimizer: str = 'sgd',
                  load_model: str = None,
                  debug: bool = True,
@@ -20,6 +20,7 @@ class WassersteinGAN:
         """
         :param config:
             n_z=128
+            image_shape=[128, 128, 3]
         :param config_critic:
             mode='cnn'
             parameter=dict(batch_norm=True, batch_norm_decay=0.999)
@@ -38,13 +39,14 @@ class WassersteinGAN:
         # hyper parameters
         self.__config = config
         self.__clip = gradient_clip
-        self.__mini_batch = mini_batch
+        self.__batch = batch
         self.__optimizer = optimizer
         self.__logger = create_log() if debug else None
 
         self.__n_thread = n_thread
 
-        self.__log('BUILD WassersteinGAN GRAPH: generator (%s), critic (%s)' % (generator_mode, critic_mode))
+        self.__log('BUILD WassersteinGAN GRAPH: generator (%s), critic (%s)'
+                   % (config_generator['mode'], config_critic['mode']))
         self.__build_graph()
         self.session = tf.Session(config=tf.ConfigProto(log_device_placement=False))
 
@@ -54,49 +56,38 @@ class WassersteinGAN:
         else:
             self.session.run(tf.global_variables_initializer())
 
+    def __record_parser(self, example_proto):
+        features = dict(
+            image=tf.FixedLenFeature([], tf.string, default_value="")
+        )
+        parsed_features = tf.parse_single_example(example_proto, features)
+        feature_image = tf.decode_raw(parsed_features["image"], tf.uint8)
+        feature_image = tf.cast(feature_image, tf.float32)
+        image = tf.reshape(feature_image, self.__config['image_shape'])
+        return image
+
     def __build_graph(self):
         """ Create Network, Define Loss Function and Optimizer """
 
         # initializer
         initializer = tf.contrib.layers.variance_scaling_initializer(seed=0)
-
-        ############
-        # TFRecord #
-        ############
-        def record_parser(example_proto):
-            features = dict(
-                shape=tf.FixedLenFeature((), tf.int64, default_value=0),
-                image=tf.FixedLenFeature((), tf.string, default_value="")
-            )
-            parsed_features = tf.parse_single_example(example_proto, features)
-            return parsed_features["image"], parsed_features["shape"]
-
-        def read_image(image, _shape):
-            _shape = tf.cast(_shape, tf.int32)
-            image = tf.decode_raw(image, tf.uint8)
-            image = tf.cast(image, tf.float32)
-            image = tf.reshape(image, _shape)
-            return image
-
         # load tfrecord instance
         self.tfrecord_name = tf.placeholder(tf.string, name='tfrecord_dataset_name')
         data_set_api = tf.data.TFRecordDataset(self.tfrecord_name, compression_type='GZIP')
         # convert record to tensor
-        data_set_api = data_set_api.map(record_parser, self.__n_thread)
-        # formatting data
-        data_set_api = data_set_api.map(read_image, self.__n_thread)
+        data_set_api = data_set_api.map(self.__record_parser, self.__n_thread)
         # set batch size
-        data_set_api = data_set_api.batch(self.__mini_batch)
-        # repeating
-        data_set_api = data_set_api.repeat(-1)
+        data_set_api = data_set_api.shuffle(buffer_size=10000, seed=0)
+        data_set_api = data_set_api.batch(self.__batch)
         # make iterator
         iterator = tf.contrib.data.Iterator.from_structure(data_set_api.output_types, data_set_api.output_shapes)
         # get next input
         input_image = iterator.get_next()
         # initialize iterator
         self.data_iterator = iterator.make_initializer(data_set_api)
+
         # get random variable
-        random_samples = tf.random_normal((self.__mini_batch, self.__config["n_z"]), mean=0, stddev=1, dtype=tf.float32)
+        random_samples = tf.random_normal((self.__batch, self.__config["n_z"]), mean=0, stddev=1, dtype=tf.float32)
 
         ##############
         # main graph #
@@ -105,7 +96,7 @@ class WassersteinGAN:
         self.input_shape = input_image.get_shape().as_list()[1:]
         self.input_image = tf.placeholder_with_default(input_image, [None] + self.input_shape, name="input")
         self.learning_rate = tf.placeholder(tf.float32, name='learning_rate')
-        self.is_training = tf.placeholder_with_default(False, [])
+        self.is_training = tf.placeholder_with_default(True, [])
         self.random_samples = tf.placeholder_with_default(random_samples,
                                                           shape=[None, self.__config["n_z"]],
                                                           name='random_samples')
@@ -114,8 +105,8 @@ class WassersteinGAN:
 
         with tf.variable_scope("generator", initializer=initializer):
             self.generated_image = self.__base_model.generator(self.random_samples,
-                                                               output_width=64,
-                                                               output_channel=3,
+                                                               output_width=self.__config['image_shape'][0],
+                                                               output_channel=self.__config['image_shape'][-1],
                                                                is_training=self.is_training,
                                                                **self.__config_generator)
 
@@ -172,6 +163,53 @@ class WassersteinGAN:
         # saver
         self.saver = tf.train.Saver()
 
+    def train(self,
+              checkpoint: str,
+              epoch: int,
+              path_to_tfrecord: str,
+              n_critic: int = 5,
+              learning_rate: float = None,
+              # checkpoint_warm_start: str = None,
+              progress_interval: int = 100):
+
+        self.__logger = create_log('%s/log' % checkpoint)
+        self.__log('checkpoint (%s), epoch (%i), learning rate (%0.3f), n critic (%i)'
+                   % (checkpoint, epoch, learning_rate, n_critic))
+        if not os.path.exists(checkpoint):
+            os.makedirs(checkpoint, exist_ok=True)
+
+        feed = {self.learning_rate: learning_rate}
+        loss = []
+        for e in range(epoch):
+            # initialize tfrecorder: initialize each epoch to shuffle data
+            self.session.run(self.data_iterator, feed_dict={self.tfrecord_name: [path_to_tfrecord]})
+            loss_generator = []
+            loss_critic = []
+            n = 0
+            while True:
+                n += 1
+                try:
+                    # train critic
+                    for _ in range(n_critic):
+                        _, tmp_loss = self.session.run([self.train_op_critic, self.loss_critic], feed_dict=feed)
+                        loss_critic.append(tmp_loss)
+
+                    # train generator
+                    _, loss_gen = self.session.run([self.train_op_generator, self.loss_generator], feed_dict=feed)
+                    loss_generator.append(loss_gen)
+
+                    # print progress in epoch
+                    if progress_interval is not None and n % progress_interval == 0:
+                        print('epoch %i-%i: [generator: %0.3f, critics: %0.3f]'
+                              % (e, n, np.average(loss_generator), np.average(loss_critic)), end='', flush=True)
+
+                except tf.errors.OutOfRangeError:
+                    loss_generator, loss_critic = np.average(loss_generator), np.average(loss_critic)
+                    self.__log('epoch %i: loss generator (%0.3f), loss critics (%0.3f)'
+                               % (e, loss_generator, loss_critic))
+                    loss.append([loss_generator, loss_critic])
+                    break
+
     def __log(self, statement):
         if self.__logger is not None:
             self.__logger.info(statement)
@@ -192,17 +230,5 @@ class WassersteinGAN:
     def input_image_shape(self):
         return self.input_shape
 
-    def train(self,
-              checkpoint: str,
-              learning_rate: float = None,
-              checkpoint_warm_start: str = None,
-              progress_interval: int = 10):
-
-        if not os.path.exists(checkpoint):
-            os.makedirs(checkpoint, exist_ok=True)
-
-        # train
-        self.session.run(init_op,
-                         feed_dict={filenames: [INPUT_TFRECORD_TRAIN]})
 
 
