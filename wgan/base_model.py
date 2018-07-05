@@ -110,7 +110,7 @@ class BaseModel:
             layer = leaky_relu(layer)
 
         # flatten and get logit
-        sh = inputs.get_shape().as_list()
+        sh = layer.get_shape().as_list()
         flatten_size = np.prod(sh[1:])
         layer = tf.reshape(layer, [-1, flatten_size])
         logit = self.full_connected(layer,

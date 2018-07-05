@@ -3,6 +3,7 @@ import numpy as np
 import os
 from .util import create_log
 from .base_model import BaseModel
+import json
 
 
 class WassersteinGAN:
@@ -32,8 +33,8 @@ class WassersteinGAN:
         """
 
         # get generator and critic
-        self.__config_critic = config_critic
-        self.__config_generator = config_generator
+        self.__config_critic = config_critic['parameter']
+        self.__config_generator = config_generator['parameter']
         self.__base_model = BaseModel(critic_mode=config_critic['mode'], generator_mode=config_generator['mode'])
 
         # hyper parameters
@@ -57,9 +58,7 @@ class WassersteinGAN:
             self.session.run(tf.global_variables_initializer())
 
     def __record_parser(self, example_proto):
-        features = dict(
-            image=tf.FixedLenFeature([], tf.string, default_value="")
-        )
+        features = dict(image=tf.FixedLenFeature([], tf.string, default_value=""))
         parsed_features = tf.parse_single_example(example_proto, features)
         feature_image = tf.decode_raw(parsed_features["image"], tf.uint8)
         feature_image = tf.cast(feature_image, tf.float32)
@@ -82,7 +81,7 @@ class WassersteinGAN:
         # make iterator
         iterator = tf.contrib.data.Iterator.from_structure(data_set_api.output_types, data_set_api.output_shapes)
         # get next input
-        input_image = iterator.get_next()
+        tf_record_input = iterator.get_next()
         # initialize iterator
         self.data_iterator = iterator.make_initializer(data_set_api)
 
@@ -93,8 +92,7 @@ class WassersteinGAN:
         # main graph #
         ##############
         # place holder
-        self.input_shape = input_image.get_shape().as_list()[1:]
-        self.input_image = tf.placeholder_with_default(input_image, [None] + self.input_shape, name="input")
+        self.input_image = tf.placeholder_with_default(tf_record_input, [None] + self.__config['image_shape'], name="input")
         self.learning_rate = tf.placeholder(tf.float32, name='learning_rate')
         self.is_training = tf.placeholder_with_default(True, [])
         self.random_samples = tf.placeholder_with_default(random_samples,
@@ -114,6 +112,7 @@ class WassersteinGAN:
             logit_input = self.__base_model.critic(input_image,
                                                    is_training=self.is_training,
                                                    **self.__config_critic)
+            self.tmp = logit_input
             logit_random = self.__base_model.critic(self.generated_image,
                                                     is_training=self.is_training,
                                                     reuse=True,
@@ -128,7 +127,7 @@ class WassersteinGAN:
         var_critic = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='critic')
 
         # loss
-        self.loss_critic = tf.reduce_mean(logit_input) - tf.reduce_mean(logit_random)
+        self.loss_critic = tf.reduce_mean(logit_random) - tf.reduce_mean(logit_input)
         self.loss_generator = -tf.reduce_mean(logit_random)
         # self.loss_critic = tf.where(tf.is_nan(loss_critic), 0.0, loss_critic)
         # self.loss_generator = tf.where(tf.is_nan(loss_generator), 0.0, loss_generator)
@@ -151,7 +150,7 @@ class WassersteinGAN:
         # logging #
         ###########
 
-        self.__log('input shape: %s' % str(self.input_shape))
+        self.__log('input shape: %s' % str(self.__config['image_shape']))
         self.n_var = 0
         for var in tf.trainable_variables():
             sh = var.get_shape().as_list()
@@ -167,22 +166,29 @@ class WassersteinGAN:
               checkpoint: str,
               epoch: int,
               path_to_tfrecord: str,
-              n_critic: int = 5,
-              learning_rate: float = None,
+              n_critic: int,
+              learning_rate: float,
               # checkpoint_warm_start: str = None,
-              progress_interval: int = 100):
+              progress_interval: int = None):
 
-        self.__logger = create_log('%s/log' % checkpoint)
-        self.__log('checkpoint (%s), epoch (%i), learning rate (%0.3f), n critic (%i)'
-                   % (checkpoint, epoch, learning_rate, n_critic))
         if not os.path.exists(checkpoint):
             os.makedirs(checkpoint, exist_ok=True)
 
+        self.__logger = create_log('%s/log' % checkpoint)
+        self.__log('checkpoint (%s), epoch (%i), learning rate (%0.5f), n critic (%i)'
+                   % (checkpoint, epoch, learning_rate, n_critic))
+
         feed = {self.learning_rate: learning_rate}
         loss = []
+
         for e in range(epoch):
             # initialize tfrecorder: initialize each epoch to shuffle data
             self.session.run(self.data_iterator, feed_dict={self.tfrecord_name: [path_to_tfrecord]})
+
+            # print(self.session.run([self.input_image]))
+            # print(self.session.run([self.generated_image]))
+            # print(self.session.run([self.loss_critic]))
+
             loss_generator = []
             loss_critic = []
             n = 0
@@ -200,7 +206,7 @@ class WassersteinGAN:
 
                     # print progress in epoch
                     if progress_interval is not None and n % progress_interval == 0:
-                        print('epoch %i-%i: [generator: %0.3f, critics: %0.3f]'
+                        print('epoch %i-%i: [generator: %0.3f, critics: %0.3f]\r'
                               % (e, n, np.average(loss_generator), np.average(loss_critic)), end='', flush=True)
 
                 except tf.errors.OutOfRangeError:
@@ -210,17 +216,13 @@ class WassersteinGAN:
                     loss.append([loss_generator, loss_critic])
                     break
 
+        self.saver.save(self.session, "%s/model.ckpt" % checkpoint)
+        with open('%s/meta.json' % checkpoint) as f:
+            json.dump(f, dict(learning_rate=learning_rate, loss=loss, epoch=e, n_critic=n_critic))
+
     def __log(self, statement):
         if self.__logger is not None:
             self.__logger.info(statement)
-
-    @property
-    def path_to_dataset(self):
-        return self.tfrecord_name
-
-    @property
-    def image(self):
-        return self.input_image
 
     @property
     def trainable_variables(self):
@@ -228,7 +230,7 @@ class WassersteinGAN:
 
     @property
     def input_image_shape(self):
-        return self.input_shape
+        return self.__config['image_shape']
 
 
 
