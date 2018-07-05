@@ -80,11 +80,10 @@ class TFRecorder:
                     # cropping
                     img = img[center_y - 64: center_y + 64, center_x - 64: center_x + 64]
                     img = np.rint(img).clip(0, 255).astype(np.uint8)
-
                     # downscale
                     if down_scale != 0:
                         for _ in range(down_scale):
-                            img = img[:, 0::2, 0::2] + img[:, 0::2, 1::2] + img[:, 1::2, 0::2] + img[:, 1::2, 1::2]
+                            img = img[0::2, 0::2, :] + img[0::2, 1::2, :] + img[1::2, 0::2, :] + img[1::2, 1::2, :]
                         img = img * 0.25**down_scale
                         img = np.rint(img).clip(0, 255).astype(np.uint8)
 
