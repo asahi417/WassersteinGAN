@@ -4,6 +4,7 @@ import os
 from .util import create_log
 from .base_model import BaseModel
 import json
+from PIL import Image
 
 
 class WassersteinGAN:
@@ -12,7 +13,7 @@ class WassersteinGAN:
                  config: dict,
                  config_critic: dict = None,
                  config_generator: dict = None,
-                 gradient_clip: int = 10,
+                 gradient_clip: float = 1,
                  batch: int = 10,
                  optimizer: str = 'sgd',
                  load_model: str = None,
@@ -48,6 +49,7 @@ class WassersteinGAN:
 
         self.__log('BUILD WassersteinGAN GRAPH: generator (%s), critic (%s)'
                    % (config_generator['mode'], config_critic['mode']))
+        self.__log('parameter: clip(%0.7f) batch (%i) opt (%s)' % (gradient_clip, batch, optimizer))
         self.__build_graph()
         self.session = tf.Session(config=tf.ConfigProto(log_device_placement=False))
 
@@ -169,13 +171,14 @@ class WassersteinGAN:
               n_critic: int,
               learning_rate: float,
               # checkpoint_warm_start: str = None,
-              progress_interval: int = None):
+              progress_interval: int = None,
+              output_generated_image: bool = False):
 
         if not os.path.exists(checkpoint):
             os.makedirs(checkpoint, exist_ok=True)
 
         self.__logger = create_log('%s/log' % checkpoint)
-        self.__log('checkpoint (%s), epoch (%i), learning rate (%0.5f), n critic (%i)'
+        self.__log('checkpoint (%s), epoch (%i), learning rate (%0.7f), n critic (%i)'
                    % (checkpoint, epoch, learning_rate, n_critic))
 
         feed = {self.learning_rate: learning_rate}
@@ -184,11 +187,6 @@ class WassersteinGAN:
         for e in range(epoch):
             # initialize tfrecorder: initialize each epoch to shuffle data
             self.session.run(self.data_iterator, feed_dict={self.tfrecord_name: [path_to_tfrecord]})
-
-            # print(self.session.run([self.input_image]))
-            # print(self.session.run([self.generated_image]))
-            # print(self.session.run([self.loss_critic]))
-
             loss_generator = []
             loss_critic = []
             n = 0
@@ -214,11 +212,24 @@ class WassersteinGAN:
                     self.__log('epoch %i: loss generator (%0.3f), loss critics (%0.3f)'
                                % (e, loss_generator, loss_critic))
                     loss.append([loss_generator, loss_critic])
+                    if output_generated_image:
+                        img = self.generate_image()
+                        Image.fromarray(img, 'RGB').save('%s/generated_img_%i.png' % (checkpoint, e))
                     break
 
         self.saver.save(self.session, "%s/model.ckpt" % checkpoint)
-        with open('%s/meta.json' % checkpoint) as f:
-            json.dump(f, dict(learning_rate=learning_rate, loss=loss, epoch=e, n_critic=n_critic))
+        with open('%s/meta.json' % checkpoint, 'w') as f:
+            json.dump(f, dict(learning_rate=str(learning_rate),
+                              loss=np.array(loss).astype(str).tolist(),
+                              epoch=str(e),
+                              n_critic=str(n_critic)
+                              ))
+
+    def generate_image(self, random_variable=None):
+        if random_variable is None:
+            random_variable = np.random.randn(1, self.__config["n_z"])
+        result = self.session.run([self.generated_image], feed_dict={self.random_samples: random_variable})
+        return np.rint(result[0][0] * 255).astype('uint8')
 
     def __log(self, statement):
         if self.__logger is not None:

@@ -63,7 +63,7 @@ class TestTFRecord:
 
 
 if __name__ == '__main__':
-    dim = 128
+    dim = 64 
     recorder = TestTFRecord(image_shape=[dim, dim, 3],
                             n_thread=4,
                             batch_size=60)
