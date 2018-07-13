@@ -58,11 +58,9 @@ class TFRecorder:
                  center_x: int = 89,
                  center_y: int = 121,
                  shuffle_seed: int = 0,
-                 down_scale: int = 0,
                  validation_split: float = None):
 
-        original_shape = 128 / 2 ** down_scale
-        self.my_print('shape: %i' % original_shape)
+        self.my_print('shape: 128')
 
         image_files = glob('%s/*.png' % self.path_to_dataset)
         image_files = shuffle_data(image_files, seed=shuffle_seed)
@@ -80,12 +78,6 @@ class TFRecorder:
                     # cropping
                     img = img[center_y - 64: center_y + 64, center_x - 64: center_x + 64]
                     img = np.rint(img).clip(0, 255).astype(np.uint8)
-                    # downscale
-                    if down_scale != 0:
-                        for _ in range(down_scale):
-                            img = img[0::2, 0::2, :] + img[0::2, 1::2, :] + img[1::2, 0::2, :] + img[1::2, 1::2, :]
-                        img = img * 0.25**down_scale
-                        img = np.rint(img).clip(0, 255).astype(np.uint8)
 
                     if n % self.progress_interval == 0:
 
@@ -106,46 +98,16 @@ class TFRecorder:
                     writer.write(ex.SerializeToString())
 
         # apply full data
-        write(image_files, '%s-%i.tfrecord' % (self.path_to_save, original_shape), mode='full')
+        write(image_files, '%s.tfrecord' % self.path_to_save, mode='full')
 
         if validation_split is not None:
             raise_error(validation_split > 1, 'validation_split has to be in [0,1]')
 
             # apply train data
             write(image_files[int(np.rint(len(image_files) * validation_split)):],
-                  '%s-%i-train.tfrecord' % (self.path_to_save, original_shape),
-                  mode='train')
+                  '%s-train.tfrecord' % self.path_to_save, mode='train')
 
             # apply test data
             write(image_files[:int(np.rint(len(image_files) * validation_split))],
-                  '%s-%i-test.tfrecord' % (self.path_to_save, original_shape),
-                  mode='test')
+                  '%s-test.tfrecord' % self.path_to_save, mode='test')
 
-
-# def create_mnist(tfrecord_dir, mnist_dir, shuffle_seed=0):
-#     import gzip
-#     with gzip.open(os.path.join(mnist_dir, 'train-images-idx3-ubyte.gz'), 'rb') as file:
-#         images = np.frombuffer(file.read(), np.uint8, offset=16)
-#     with gzip.open(os.path.join(mnist_dir, 'train-labels-idx1-ubyte.gz'), 'rb') as file:
-#         labels = np.frombuffer(file.read(), np.uint8, offset=8)
-#     images = images.reshape(-1, 1, 28, 28)
-#     images = np.pad(images, [(0, 0), (0, 0), (2, 2), (2, 2)], 'constant', constant_values=0)
-#     assert images.shape == (60000, 1, 32, 32) and images.dtype == np.uint8
-#     assert labels.shape == (60000,) and labels.dtype == np.uint8
-#     assert np.min(images) == 0 and np.max(images) == 255
-#     assert np.min(labels) == 0 and np.max(labels) == 9
-#     onehot = np.zeros((labels.size, np.max(labels) + 1), dtype=np.float32)
-#     onehot[np.arange(labels.size), labels] = 1.0
-#
-#     with TFRecordExporter(tfrecord_dir, images.shape[0]) as tfr:
-#         print('Loading MNIST from "%s"' % mnist_dir)
-#         order = tfr.randomized_index(seed=shuffle_seed)
-#         for idx in range(order.size):
-#             tfr.add_image(images[order[idx]])
-#         tfr.add_labels(onehot[order])
-
-
-if __name__ == '__main__':
-    path_celeba = './datasets/celeba'
-    path_tfrecord = './datasets/tfrecords/celeba'
-    create_celeba(path_tfrecord, path_celeba)

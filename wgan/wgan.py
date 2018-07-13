@@ -10,6 +10,8 @@ from PIL import Image
 class WassersteinGAN:
 
     def __init__(self,
+                 learning_rate: float,
+                 n_critic: int,
                  config: dict,
                  config_critic: dict = None,
                  config_generator: dict = None,
@@ -18,7 +20,8 @@ class WassersteinGAN:
                  optimizer: str = 'sgd',
                  load_model: str = None,
                  debug: bool = True,
-                 n_thread: int = 4):
+                 n_thread: int = 4,
+                 down_scale: int = None):
         """
         :param config:
             n_z=128
@@ -39,9 +42,12 @@ class WassersteinGAN:
         self.__base_model = BaseModel(critic_mode=config_critic['mode'], generator_mode=config_generator['mode'])
 
         # hyper parameters
+        self.__learning_rate = learning_rate
+        self.__n_critic = n_critic
         self.__config = config
         self.__clip = gradient_clip
         self.__batch = batch
+        self.__down_scale = down_scale
         self.__optimizer = optimizer
         self.__logger = create_log() if debug else None
 
@@ -101,12 +107,23 @@ class WassersteinGAN:
                                                           shape=[None, self.__config["n_z"]],
                                                           name='random_samples')
 
-        input_image = self.input_image / 255  # make pixel to be in [0, 1]
+        # make pixel to be in [0, 1]
+        input_image = self.input_image / 255
+
+        # bilinear interpolation for down scale
+        height, width, ch = self.__config['image_shape']
+        assert height == width
+        if self.__down_scale is not None:
+            image_shape = np.rint(width / (2*self.__down_scale))
+            size = tf.cast(tf.constant([image_shape, image_shape]), tf.int32)
+            input_image = tf.image.resize_images(input_image, size)
+        else:
+            image_shape = width
 
         with tf.variable_scope("generator", initializer=initializer):
             self.generated_image = self.__base_model.generator(self.random_samples,
-                                                               output_width=self.__config['image_shape'][0],
-                                                               output_channel=self.__config['image_shape'][-1],
+                                                               output_width=image_shape,
+                                                               output_channel=ch,
                                                                is_training=self.is_training,
                                                                **self.__config_generator)
 
@@ -152,7 +169,6 @@ class WassersteinGAN:
         # logging #
         ###########
 
-        self.__log('input shape: %s' % str(self.__config['image_shape']))
         self.n_var = 0
         for var in tf.trainable_variables():
             sh = var.get_shape().as_list()
@@ -168,9 +184,6 @@ class WassersteinGAN:
               checkpoint: str,
               epoch: int,
               path_to_tfrecord: str,
-              n_critic: int,
-              learning_rate: float,
-              # checkpoint_warm_start: str = None,
               progress_interval: int = None,
               output_generated_image: bool = False):
 
@@ -179,9 +192,9 @@ class WassersteinGAN:
 
         self.__logger = create_log('%s/log' % checkpoint)
         self.__log('checkpoint (%s), epoch (%i), learning rate (%0.7f), n critic (%i)'
-                   % (checkpoint, epoch, learning_rate, n_critic))
+                   % (checkpoint, epoch, self.__learning_rate, self.__n_critic))
 
-        feed = {self.learning_rate: learning_rate}
+        feed = {self.learning_rate: self.__learning_rate}
         loss = []
 
         e = 0
@@ -195,7 +208,7 @@ class WassersteinGAN:
                 n += 1
                 try:
                     # train critic
-                    for _ in range(n_critic):
+                    for _ in range(self.__n_critic):
                         _, tmp_loss = self.session.run([self.train_op_critic, self.loss_critic], feed_dict=feed)
                         loss_critic.append(tmp_loss)
 
@@ -209,6 +222,7 @@ class WassersteinGAN:
                               % (e, n, np.average(loss_generator), np.average(loss_critic)), end='', flush=True)
 
                 except tf.errors.OutOfRangeError:
+                    print()
                     loss_generator, loss_critic = np.average(loss_generator), np.average(loss_critic)
                     self.__log('epoch %i: loss generator (%0.3f), loss critics (%0.3f)'
                                % (e, loss_generator, loss_critic))
@@ -220,10 +234,10 @@ class WassersteinGAN:
 
         self.saver.save(self.session, "%s/model.ckpt" % checkpoint)
         with open('%s/meta.json' % checkpoint, 'w') as f:
-            json.dump(dict(learning_rate=str(learning_rate),
+            json.dump(dict(learning_rate=str(self.__learning_rate),
                            loss=np.array(loss).astype(str).tolist(),
                            epoch=str(e),
-                           n_critic=str(n_critic)), f)
+                           n_critic=str(self.__n_critic)), f)
 
     def generate_image(self, random_variable=None):
         if random_variable is None:
