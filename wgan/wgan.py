@@ -184,6 +184,7 @@ class WassersteinGAN:
         feed = {self.learning_rate: learning_rate}
         loss = []
 
+        e = 0
         for e in range(epoch):
             # initialize tfrecorder: initialize each epoch to shuffle data
             self.session.run(self.data_iterator, feed_dict={self.tfrecord_name: [path_to_tfrecord]})
@@ -219,11 +220,10 @@ class WassersteinGAN:
 
         self.saver.save(self.session, "%s/model.ckpt" % checkpoint)
         with open('%s/meta.json' % checkpoint, 'w') as f:
-            json.dump(f, dict(learning_rate=str(learning_rate),
-                              loss=np.array(loss).astype(str).tolist(),
-                              epoch=str(e),
-                              n_critic=str(n_critic)
-                              ))
+            json.dump(dict(learning_rate=str(learning_rate),
+                           loss=np.array(loss).astype(str).tolist(),
+                           epoch=str(e),
+                           n_critic=str(n_critic)), f)
 
     def generate_image(self, random_variable=None):
         if random_variable is None:
