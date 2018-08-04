@@ -1,13 +1,22 @@
 import os
 import logging
-import numpy as np
-import toml
-from tensorflow.python.util import nest
-from tensorflow.python.ops import array_ops
 from glob import glob
 import json
-import pandas as pd
-import re
+import tensorflow as tf
+
+
+def variable_summaries(var, name):
+    """Attach a lot of summaries to a Tensor (for TensorBoard visualization).
+    https://www.tensorflow.org/guide/summaries_and_tensorboard """
+    with tf.name_scope('var_%s' % name):
+        mean = tf.reduce_mean(var)
+        tf.summary.scalar('mean', mean)
+        with tf.name_scope('stddev'):
+            stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
+        tf.summary.scalar('stddev', stddev)
+        tf.summary.scalar('max', tf.reduce_max(var))
+        tf.summary.scalar('min', tf.reduce_min(var))
+        tf.summary.histogram('histogram', var)
 
 
 def raise_error(condition, msg):

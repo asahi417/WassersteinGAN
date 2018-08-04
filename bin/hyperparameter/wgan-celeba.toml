@@ -1,9 +1,9 @@
-gradient_clip=0.00001
+gradient_clip=0.000005
 batch=128
 optimizer='adam'
-down_scale=1
-learning_rate=0.00001
-n_critic=5
+down_scale=2
+learning_rate=0.000005
+n_critic=3
 
 [config]
 n_z=128
