@@ -12,9 +12,9 @@ setup(
     long_description=readme,
     author='Asahi Ushio',
     author_email='aushio@keio.jp',
-    packages=find_packages(exclude=('tests', 'dataset')),
+    packages=find_packages(exclude=('scripts', 'dataset')),
     include_package_data=True,
-    test_suite='tests',
+    test_suite='scripts',
     install_requires=[
         'tensorflow-gpu==1.10.1',
         'numpy',

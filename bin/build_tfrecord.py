@@ -1,17 +1,25 @@
 import wgan
 import os
+import argparse
 
 PATH_TFRECORD = os.getenv('PATH_TFRECORD', './datasets/tfrecords')
-DATASET = os.getenv('DATASET', 'celeba')
-PATH_DATA = dict(
-    celeba='./datasets/celeba/img/img_align_celeba',
-    lsun='./datasets/lsun/image'
-)
+PATH_DATA = dict(celeba='./datasets/celeba/img/img_align_celeba', lsun='./datasets/lsun/image')
+
+
+def get_options(parser):
+    share_param = {'nargs': '?', 'action': 'store', 'const': None, 'choices': None, 'metavar': None}
+    parser.add_argument('--data', help='Dataset.', required=True, type=str, **share_param)
+    parser.add_argument('--split', help='split.', action='store_true')
+    return parser.parse_args()
 
 
 if __name__ == '__main__':
-    recorder = wgan.TFRecorder(dataset_name=DATASET,
-                               path_to_dataset=PATH_DATA[DATASET],
+    args = get_options(
+        argparse.ArgumentParser(description='This script is ...', formatter_class=argparse.RawTextHelpFormatter))
+    recorder = wgan.TFRecorder(dataset_name=args.data,
+                               path_to_dataset=PATH_DATA[args.data],
                                tfrecord_dir=PATH_TFRECORD)
-    recorder.create()
-    # recorder.create(validation_split=0.2)
+    if args.split:
+        recorder.create(validation_split=0.2)
+    else:
+        recorder.create()

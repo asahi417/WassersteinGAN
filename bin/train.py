@@ -12,6 +12,9 @@ HYPERPARAMETER = os.getenv('HYPERPARAMETER', './bin/hyperparameter/%s-%s.toml' %
 
 
 if __name__ == '__main__':
+    # Ignore warning message by tensor flow
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+    
     param = toml.load(open(HYPERPARAMETER))
     path_ckpt, _ = wgan.checkpoint_version(CHECKPOINT, param)
 
