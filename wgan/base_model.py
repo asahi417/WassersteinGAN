@@ -36,6 +36,155 @@ class BaseModel:
         else:
             raise ValueError('unknown generator mode `%s`' % critic_mode)
 
+    def __critic_cnn(self,
+                     inputs,
+                     is_training=None,
+                     batch_norm: bool = True,
+                     batch_norm_decay: float = 0.999,
+                     leaky_relu_alpha: float = 0.2,
+                     reuse: bool = None
+                     ):
+        """DCGAN discriminator:
+        - Batch norm for all layer except first layer1.
+        - WGAN don't use last output sigomid activation."""
+
+        def leaky_relu(x):
+            return tf.maximum(tf.minimum(0.0, leaky_relu_alpha * x), x)
+
+        def bn(input_layer):
+            if batch_norm:
+                if is_training is None:
+                    raise ValueError('Specify train phase by `is_training`')
+                return tf.contrib.layers.batch_norm(input_layer,
+                                                    decay=batch_norm_decay,
+                                                    is_training=is_training,
+                                                    updates_collections=None)
+            else:
+                return input_layer
+
+        ini_width = inputs.get_shape().as_list()[1]
+        layer = inputs
+        i = 0
+        tmp_channel = 3
+        next_channel = ini_width
+        while True:
+            layer = self.convolution(
+                layer,
+                weight_shape=[5, 5, tmp_channel, next_channel],
+                stride=[2, 2],
+                scope='conv_%i' % i,
+                reuse=reuse,
+                padding='SAME'
+            )
+            tmp_channel = next_channel
+            next_channel = next_channel * 2
+
+            if i != 0:  # no batch norm for input layer
+                layer = bn(layer)
+            layer = leaky_relu(layer)
+            if tmp_channel == int(ini_width*8):
+                break
+            i += 1
+        # flatten and get logit
+        sh = layer.get_shape().as_list()
+        flatten_size = np.prod(sh[1:])
+        layer = tf.reshape(layer, [-1, flatten_size])
+        logit = self.full_connected(layer,
+                                    weight_shape=[flatten_size, 1],
+                                    reuse=reuse)
+        return logit
+
+    def __generator_cnn(self,
+                        inputs,
+                        output_width: int,
+                        output_channel: int,
+                        is_training=None,
+                        batch_norm: bool = True,
+                        batch_norm_decay: float = 0.999,
+                        activation: str = 'relu',
+                        # filter_width: list = None,
+                        # stride: list = None
+                        ):
+        """ DCGAN Generator: Batch norm for all layer except last layer.
+
+        :param inputs: input tensor (batch, latent dim)
+        :param output_width: width length of output
+        :param output_channel: channel size of output
+        :param is_training:
+        :param batch_norm:
+        :param batch_norm_decay:
+        :param activation:
+        # :param filter_width:
+        # :param stride:
+        :return:
+        """
+        def bn(input_layer):
+            if batch_norm:
+                if is_training is None:
+                    raise ValueError('Specify train phase by `is_training`')
+                return tf.contrib.layers.batch_norm(input_layer,
+                                                    decay=batch_norm_decay,
+                                                    is_training=is_training,
+                                                    updates_collections=None)
+            else:
+                return input_layer
+
+        # filter_width = [5, 5, 5, 5] if filter_width is None else filter_width
+
+        # def next_output_shape(output_shape, fractional_stride):
+        #     return int(np.ceil(output_shape / fractional_stride))
+
+        activation_fn = self.check_activation(activation)
+        unit_size = self.check_input_dimension(inputs, dim=2)
+        batch_size = self.dynamic_batch_size(inputs)
+
+        layer = self.full_connected(inputs,
+                                    weight_shape=[unit_size, 4 * 4 * 8 * output_channel],
+                                    bias=False,
+                                    scope='fc')
+        layer = tf.reshape(layer, [-1, 4, 4, 8 * output_channel])
+        layer = bn(layer)
+        layer = activation_fn(layer)
+
+        tmp_output_size = int(8 * output_channel)
+        tmp_width = 4
+        i = 0
+        # print(output_width)
+        while True:
+            # convolution_trans
+            if output_width == int(tmp_width * 2):
+                next_output_size = 3
+                next_width = output_width
+            else:
+                next_output_size = int(tmp_output_size / 2)
+                next_width = int(tmp_width * 2)
+
+            # print(next_output_size, next_width, tmp_output_size, tmp_width)
+            layer = self.convolution_trans(
+                layer,
+                weight_shape=[5, 5, next_output_size, tmp_output_size],
+                output_shape=[batch_size, next_width, next_width, next_output_size],
+                stride=[2, 2],
+                scope='conv_%i' % i,
+                padding='SAME',
+                bias=False
+            )
+            tmp_width = next_width
+            tmp_output_size = next_output_size
+
+            if output_width == tmp_width:
+                # activation: except last layer, which uses `tanh`, every layer uses preset activation
+                layer = tf.tanh(layer)
+                break
+            else:
+                # batch normalization, except for output layer
+                layer = bn(layer)
+                layer = activation_fn(layer)
+                i += 1
+
+            # print(layer.shape)
+        return layer
+
     def __generator_mlp(self,
                         inputs,
                         output_shape: list,
@@ -59,147 +208,6 @@ class BaseModel:
             else:
                 layer = self.full_connected(layer, [hidden_unit, hidden_unit], scope='fc_%i' % (i+1))
                 layer = activation_fn(layer)
-        return layer
-
-    def __critic_cnn(self,
-                     inputs,
-                     is_training=None,
-                     batch_norm: bool = True,
-                     batch_norm_decay: float = 0.999,
-                     channel: list = None,
-                     filter_width: list = None,
-                     stride: list = None,
-                     leaky_relu_alpha: float = 0.2,
-                     reuse: bool = None
-                     ):
-        """DCGAN discriminator:
-        - Batch norm for all layer except first layer1.
-        - WGAN don't use last output sigomid activation."""
-
-        channel = [64, 128, 256, 512] if channel is None else channel
-
-        filter_width = [5, 5, 5, 5] if filter_width is None else filter_width
-        stride = [2, 2, 2, 2] if stride is None else stride
-        
-        def leaky_relu(x):
-            return tf.maximum(tf.minimum(0.0, leaky_relu_alpha * x), x)
-
-        def bn(input_layer):
-            if batch_norm:
-                if is_training is None:
-                    raise ValueError('Specify train phase by `is_training`')
-                return tf.contrib.layers.batch_norm(input_layer, decay=batch_norm_decay, is_training=is_training)
-            else:
-                return input_layer
-
-        # add initial channel size
-        input_channel = self.check_input_dimension(inputs, dim=4)
-        channel = [input_channel] + channel
-
-        layer = inputs
-        for i in range(len(filter_width)):
-            layer = self.convolution(
-                layer,
-                weight_shape=[filter_width[i], filter_width[i], channel[i], channel[i+1]],
-                stride=[stride[i], stride[i]],
-                scope='conv_%i' % i,
-                reuse=reuse
-            )
-            if i != 0:  # no batch norm for input layer
-                layer = bn(layer)
-            layer = leaky_relu(layer)
-
-        # flatten and get logit
-        sh = layer.get_shape().as_list()
-        flatten_size = np.prod(sh[1:])
-        layer = tf.reshape(layer, [-1, flatten_size])
-        logit = self.full_connected(layer,
-                                    weight_shape=[flatten_size, 1],
-                                    reuse=reuse)
-        return logit
-
-    def __generator_cnn(self,
-                        inputs,
-                        output_width: int,
-                        output_channel: int,
-                        is_training=None,
-                        batch_norm: bool = True,
-                        batch_norm_decay: float = 0.999,
-                        activation: str = 'relu',
-                        filter_width: list = None,
-                        stride: list = None
-                        ):
-        """ DCGAN Generator: Batch norm for all layer except last layer.
-
-        :param inputs: input tensor
-        :param output_width: width length of output
-        :param output_channel: channel size of output
-        :param is_training:
-        :param batch_norm:
-        :param batch_norm_decay:
-        :param activation:
-        :param filter_width:
-        :param stride:
-        :return:
-        """
-
-        channel = [1024, 512, 256, 128, output_channel]
-
-        filter_width = [5, 5, 5, 5] if filter_width is None else filter_width
-        stride = [2, 2, 2, 2] if stride is None else stride
-
-        def bn(input_layer):
-            if batch_norm:
-                if is_training is None:
-                    raise ValueError('Specify train phase by `is_training`')
-                return tf.contrib.layers.batch_norm(input_layer, decay=batch_norm_decay, is_training=is_training)
-            else:
-                return input_layer
-
-        def next_output_shape(output_shape, fractional_stride):
-            return int(np.ceil(output_shape / fractional_stride))
-
-        activation_fn = self.check_activation(activation)
-        unit_size = self.check_input_dimension(inputs, dim=2)
-        batch_size = self.dynamic_batch_size(inputs)
-
-        # calculate valid output shape for transposed convolution
-        width = output_width
-        output_width = [output_width]
-        for _stride in stride:
-            width = next_output_shape(width, _stride)
-            output_width.append(width)
-        output_width = output_width[::-1]
-
-        layer = self.full_connected(inputs,
-                                    weight_shape=[unit_size, output_width[0] * output_width[0] * channel[0]],
-                                    bias=False,
-                                    scope='fc')
-        layer = tf.reshape(layer, [-1, output_width[0], output_width[0], channel[0]])
-        layer = bn(layer)
-        layer = activation_fn(layer)
-
-        # print(layer.shape)
-
-        for i in range(len(filter_width)):
-            # convolution_trans
-            layer = self.convolution_trans(
-                layer,
-                weight_shape=[filter_width[i], filter_width[i], channel[i+1], channel[i]],
-                output_shape=[batch_size, output_width[i+1], output_width[i+1], channel[i+1]],
-                stride=[stride[i], stride[i]],
-                scope='conv_%i' % (i+1),
-                bias=False
-            )
-            # activation: except last layer, which uses `tanh`, every layer uses preset activation
-            if i == len(filter_width) - 1:
-                layer = tf.tanh(layer)
-            else:
-                # batch normalization, except for output layer
-                layer = bn(layer)
-                layer = activation_fn(layer)
-
-            # print(layer.shape)
         return layer
 
     @staticmethod
