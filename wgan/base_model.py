@@ -51,17 +51,6 @@ class BaseModel:
         def leaky_relu(x):
             return tf.maximum(tf.minimum(0.0, leaky_relu_alpha * x), x)
 
-        def bn(input_layer):
-            if batch_norm:
-                if is_training is None:
-                    raise ValueError('Specify train phase by `is_training`')
-                return tf.contrib.layers.batch_norm(input_layer,
-                                                    decay=batch_norm_decay,
-                                                    is_training=is_training,
-                                                    updates_collections=None)
-            else:
-                return input_layer
-
         ini_width = inputs.get_shape().as_list()[1]
         layer = inputs
         i = 0
@@ -70,7 +59,7 @@ class BaseModel:
         while True:
             layer = self.convolution(
                 layer,
-                weight_shape=[5, 5, tmp_channel, next_channel],
+                weight_shape=[4, 4, tmp_channel, next_channel],
                 stride=[2, 2],
                 scope='conv_%i' % i,
                 reuse=reuse,
@@ -80,7 +69,8 @@ class BaseModel:
             next_channel = next_channel * 2
 
             if i != 0:  # no batch norm for input layer
-                layer = bn(layer)
+                if batch_norm:
+                    layer = self.bn(layer, is_training=is_training, batch_norm_decay=batch_norm_decay)
             layer = leaky_relu(layer)
             if tmp_channel == int(ini_width*8):
                 break
@@ -92,7 +82,7 @@ class BaseModel:
         logit = self.full_connected(layer,
                                     weight_shape=[flatten_size, 1],
                                     reuse=reuse)
-        return logit
+        return tf.nn.sigmoid(logit)
 
     def __generator_cnn(self,
                         inputs,
@@ -118,38 +108,28 @@ class BaseModel:
         # :param stride:
         :return:
         """
-        def bn(input_layer):
-            if batch_norm:
-                if is_training is None:
-                    raise ValueError('Specify train phase by `is_training`')
-                return tf.contrib.layers.batch_norm(input_layer,
-                                                    decay=batch_norm_decay,
-                                                    is_training=is_training,
-                                                    updates_collections=None)
-            else:
-                return input_layer
-
-        # filter_width = [5, 5, 5, 5] if filter_width is None else filter_width
-
-        # def next_output_shape(output_shape, fractional_stride):
-        #     return int(np.ceil(output_shape / fractional_stride))
 
         activation_fn = self.check_activation(activation)
         unit_size = self.check_input_dimension(inputs, dim=2)
         batch_size = self.dynamic_batch_size(inputs)
 
-        layer = self.full_connected(inputs,
-                                    weight_shape=[unit_size, 4 * 4 * 8 * output_channel],
-                                    bias=False,
-                                    scope='fc')
-        layer = tf.reshape(layer, [-1, 4, 4, 8 * output_channel])
-        layer = bn(layer)
+        layer = tf.reshape(inputs, [batch_size, 1, 1, unit_size])
+        layer = self.convolution_trans(
+            layer,
+            weight_shape=[4, 4, 8 * output_channel, unit_size],
+            output_shape=[batch_size, 4, 4, 8 * output_channel],
+            stride=[4, 4],
+            scope='conv_0',
+            padding='SAME',
+            bias=False
+        )
+        if batch_norm:
+            layer = self.bn(layer, is_training=is_training, batch_norm_decay=batch_norm_decay)
         layer = activation_fn(layer)
 
         tmp_output_size = int(8 * output_channel)
         tmp_width = 4
-        i = 0
-        # print(output_width)
+        i = 1
         while True:
             # convolution_trans
             if output_width == int(tmp_width * 2):
@@ -162,7 +142,7 @@ class BaseModel:
             # print(next_output_size, next_width, tmp_output_size, tmp_width)
             layer = self.convolution_trans(
                 layer,
-                weight_shape=[5, 5, next_output_size, tmp_output_size],
+                weight_shape=[4, 4, next_output_size, tmp_output_size],
                 output_shape=[batch_size, next_width, next_width, next_output_size],
                 stride=[2, 2],
                 scope='conv_%i' % i,
@@ -178,11 +158,11 @@ class BaseModel:
                 break
             else:
                 # batch normalization, except for output layer
-                layer = bn(layer)
+                if batch_norm:
+                    layer = self.bn(layer, is_training=is_training, batch_norm_decay=batch_norm_decay)
                 layer = activation_fn(layer)
                 i += 1
 
-            # print(layer.shape)
         return layer
 
     def __generator_mlp(self,
@@ -224,7 +204,7 @@ class BaseModel:
         if activation_name == 'relu':
             return tf.nn.relu
         else:
-            raise ValueError('unknown activation `%s`' % activation)
+            raise ValueError('unknown activation `%s`' % activation_name)
 
     @staticmethod
     def full_connected(x,
@@ -307,3 +287,14 @@ class BaseModel:
         while nest.is_sequence(inputs):
             inputs = inputs[0]
         return array_ops.shape(inputs)[0]
+
+    @staticmethod
+    def bn(input_layer, is_training, batch_norm_decay,):
+            if is_training is None:
+                raise ValueError('Specify train phase by `is_training`')
+            return tf.contrib.layers.batch_norm(input_layer,
+                                                decay=batch_norm_decay,
+                                                is_training=is_training,
+                                                updates_collections=None,
+                                                scale=True)
+

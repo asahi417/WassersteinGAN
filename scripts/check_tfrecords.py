@@ -1,6 +1,8 @@
 """
 about batching --> https://stackoverflow.com/questions/44331612/how-to-set-a-number-for-epoch-in-tf-python-io-tf-record-iterator
 about buffer size of shuffle --> https://github.com/tensorflow/tensorflow/issues/14857
+
+pixel of each image is in range of [0 225]
 """
 
 import os
@@ -10,7 +12,8 @@ from PIL import Image
 import numpy as np
 
 PATH_TFRECORD = os.getenv('PATH_TFRECORD', './datasets/tfrecords')
-PATH_DATA = dict(celeba='./datasets/celeba/img/img_align_celeba', lsun='./datasets/lsun/image')
+PATH_DATA = dict(celeba='./datasets/celeba/img/img_align_celeba',
+                 lsun='./datasets/lsun/data_train')
 OUTPUT = os.getenv('OUTPUT', './scripts/check_tfrecords')
 
 if not os.path.exists(OUTPUT):
@@ -62,7 +65,7 @@ class TestTFRecord:
         data_set_api = data_set_api.shuffle(buffer_size=10000, seed=0)
         data_set_api = data_set_api.batch(self.__mini_batch)
         # make iterator
-        iterator = tf.contrib.data.Iterator.from_structure(data_set_api.output_types, data_set_api.output_shapes)
+        iterator = tf.data.Iterator.from_structure(data_set_api.output_types, data_set_api.output_shapes)
         # get next input
         input_image = iterator.get_next()
         image_shape = np.rint(128 / 2)

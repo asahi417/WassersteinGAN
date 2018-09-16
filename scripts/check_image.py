@@ -8,7 +8,7 @@ import numpy as np
 from PIL import Image
 from glob import glob
 
-PATH_DATA = dict(celeba='./datasets/celeba/img/img_align_celeba', lsun='./datasets/lsun/image')
+PATH_DATA = dict(celeba='./datasets/celeba/img/img_align_celeba', lsun='./datasets/lsun/data_train')
 OUTPUT = os.getenv('OUTPUT', './scripts/check_image')
 
 if not os.path.exists(OUTPUT):
@@ -23,14 +23,12 @@ def get_options(parser):
 
 
 def load_and_save(n, data_name):
-    if data_name == 'celeba':
-        image_filenames = sorted(glob('%s/*.png' % PATH_DATA[data_name]))
-    else:
-        image_filenames = sorted(glob('%s/*.jpg' % PATH_DATA[data_name]))
+    image_filenames = sorted(glob('%s/*.png' % PATH_DATA[data_name]))
 
     for number, image_path in enumerate(image_filenames):
         # open as pillow instance
         image = Image.open(image_path)
+        image = image.resize((128, 128))
 
         # pillow instance -> numpy array
         image = np.array(image)

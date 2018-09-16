@@ -61,8 +61,7 @@ class TFRecorder:
                shuffle_seed: int = 0,
                validation_split: float = None):
 
-        image_files = glob('%s/*.png' % self.path_to_dataset)
-        image_files += glob('%s/*.jpg' % self.path_to_dataset)
+        image_files = sorted(glob('%s/*.png' % self.path_to_dataset))
         image_files = shuffle_data(image_files, seed=shuffle_seed)
 
         def write(image_filenames, name, mode):

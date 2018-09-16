@@ -10,8 +10,8 @@ from .dataset_tool import tfrecord_parser
 class WassersteinGAN:
 
     def __init__(self,
-                 checkpoint_dir: str,
                  n_critic: int,
+                 checkpoint_dir: str,
                  config: dict,
                  learning_rate: float = None,
                  config_critic: dict = None,
@@ -19,7 +19,6 @@ class WassersteinGAN:
                  gradient_clip: float = 1,
                  batch: int = 10,
                  optimizer: str = 'sgd',
-                 # load_model: str = None,
                  debug: bool = True,
                  n_thread: int = 4,
                  down_scale: int = None):
@@ -33,7 +32,6 @@ class WassersteinGAN:
         :param config_generator:
             mode='cnn'
             parameter=dict(batch_norm=True, batch_norm_decay=0.999)
-        :param load_model:
         :param debug:
         """
 
@@ -59,12 +57,11 @@ class WassersteinGAN:
 
         self.__log('BUILD WassersteinGAN GRAPH: generator (%s), critic (%s)'
                    % (config_generator['mode'], config_critic['mode']))
-        self.__log('parameter: clip(%0.7f) batch (%i) opt (%s)' % (gradient_clip, batch, optimizer))
+        # self.__log('parameter: clip(%0.7f) batch (%i) opt (%s)' % (gradient_clip, batch, optimizer))
         self.__build_graph()
         self.__summary = tf.summary.merge_all()
         self.__session = tf.Session(config=tf.ConfigProto(log_device_placement=False))
-        self.__writer_critic = tf.summary.FileWriter('%s/summary_critic' % self.__checkpoint_dir, self.__session.graph)
-        self.__writer_generator = tf.summary.FileWriter('%s/summary_generator' % self.__checkpoint_dir, self.__session.graph)
+        self.__writer = tf.summary.FileWriter('%s/summary' % self.__checkpoint_dir, self.__session.graph)
 
         # Load model
         if os.path.exists('%s.meta' % self.__checkpoint):
@@ -87,18 +84,14 @@ class WassersteinGAN:
         # convert record to tensor
         data_set_api = data_set_api.map(tfrecord_parser(self.__config['image_shape']), self.__n_thread)
         # set batch size
-        data_set_api = data_set_api.shuffle(buffer_size=10000, seed=0)
+        data_set_api = data_set_api.shuffle(buffer_size=10000)
         data_set_api = data_set_api.batch(self.__batch)
         # make iterator
-        iterator = tf.contrib.data.Iterator.from_structure(data_set_api.output_types, data_set_api.output_shapes)
+        iterator = tf.data.Iterator.from_structure(data_set_api.output_types, data_set_api.output_shapes)
         # get next input
         tf_record_input = iterator.get_next()
         # initialize iterator
         self.__data_iterator = iterator.make_initializer(data_set_api)
-
-        # get random variable
-        random_samples = tf.random_normal((self.__batch, self.__config["n_z"]), mean=0, stddev=1, dtype=tf.float32)
-        # random_samples = tf.random_uniform((self.__batch, self.__config["n_z"]), minval=-1, maxval=1, dtype=tf.float32)
 
         ##############
         # main graph #
@@ -108,24 +101,31 @@ class WassersteinGAN:
             tf_record_input, [None] + self.__config['image_shape'], name="input")
 
         self.__learning_rate = tf.placeholder(tf.float32, name='learning_rate')
-        tf.summary.scalar('meta_learning_rate', self.__learning_rate)
+        # tf.summary.scalar('meta_learning_rate', self.__learning_rate)
 
         self.is_training = tf.placeholder_with_default(True, [])
+
+        # get random variable
+        __batch = self.__base_model.dynamic_batch_size(self.__input_image)
+        random_samples = tf.random_normal((__batch, self.__config["n_z"]), mean=0, stddev=1, dtype=tf.float32)
         self.random_samples = tf.placeholder_with_default(
             random_samples, shape=[None, self.__config["n_z"]], name='random_samples')
 
-        # make pixel to be in [0, 1]
-        input_image = self.__input_image / 255
+        # make pixel to be in [-1, 1]
+        input_image = tf.cast(self.__input_image, tf.float32)
+        input_image = input_image * 2 / 255 - 1
 
         # bilinear interpolation for down scale
         height, width, ch = self.__config['image_shape']
         assert height == width
-        if self.__down_scale is not None:
-            image_shape = np.rint(width / (2*self.__down_scale))
-            size = tf.cast(tf.constant([image_shape, image_shape]), tf.int32)
-            input_image = tf.image.resize_images(input_image, size)
-        else:
-            image_shape = width
+
+        with tf.name_scope("resize_image"):
+            if self.__down_scale is not None:
+                image_shape = np.rint(width / (2*self.__down_scale))
+                size = tf.cast(tf.constant([image_shape, image_shape]), tf.int32)
+                input_image = tf.image.resize_images(input_image, size)
+            else:
+                image_shape = width
 
         with tf.variable_scope("generator", initializer=initializer):
             self.__generated_image = self.__base_model.generator(self.random_samples,
@@ -135,14 +135,10 @@ class WassersteinGAN:
                                                                  **self.__config_generator)
 
         with tf.variable_scope("critic", initializer=initializer):
-            logit_input = self.__base_model.critic(input_image,
-                                                   is_training=self.is_training,
-                                                   **self.__config_critic)
-            # self.tmp = logit_input
-            logit_random = self.__base_model.critic(self.__generated_image,
-                                                    is_training=self.is_training,
-                                                    reuse=True,
-                                                    **self.__config_critic)
+            prob_input = self.__base_model.critic(
+                input_image, is_training=self.is_training, **self.__config_critic)
+            prob_random = self.__base_model.critic(
+                self.__generated_image, is_training=self.is_training, reuse=True, **self.__config_critic)
 
         ################
         # optimization #
@@ -153,11 +149,11 @@ class WassersteinGAN:
         var_critic = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='critic')
 
         # loss
-        self.__loss_critic = tf.reduce_mean(logit_random) - tf.reduce_mean(logit_input)
-        tf.summary.scalar('eval_loss_critic', self.__loss_critic)
+        self.__loss_critic = - tf.reduce_mean(prob_input - prob_random)
+        # tf.summary.scalar('eval_loss_critic', self.__loss_critic)
 
-        self.__loss_generator = -tf.reduce_mean(logit_random)
-        tf.summary.scalar('eval_loss_generator', self.__loss_generator)
+        self.__loss_generator = - tf.reduce_mean(prob_random)
+        # tf.summary.scalar('eval_loss_generator', self.__loss_generator)
 
         # optimizer
         if self.__optimizer == 'sgd':
@@ -196,7 +192,8 @@ class WassersteinGAN:
               epoch: int,
               path_to_tfrecord: str,
               progress_interval: int = None,
-              output_generated_image: bool = False):
+              output_generated_image: bool = False,
+              total_data_size: int = None):
 
         self.__logger = create_log('%s/log' % self.__checkpoint_dir)
         self.__log('checkpoint (%s), epoch (%i), learning rate (%0.7f), n critic (%i)'
@@ -205,14 +202,10 @@ class WassersteinGAN:
         if self.__warm_start:
             meta = np.load('%s/meta.npz' % self.__checkpoint_dir)
             ini_epoch = meta['epoch']
-            i_summary_critic = meta['i_summary_critic']
-            i_summary_generator = meta['i_summary_generator']
             loss = meta['loss'].tolist()
             learning_rate = meta['learning_rate']
         else:
             ini_epoch = 0
-            i_summary_critic = 0
-            i_summary_generator = 0
             loss = []
             if self.__learning_rate is None:
                 raise ValueError('provide learning rate !')
@@ -220,6 +213,9 @@ class WassersteinGAN:
 
         epoch += ini_epoch
         feed = {self.__learning_rate: learning_rate}
+
+        if total_data_size is not None:
+            total_data_size = int(np.floor(total_data_size/self.__batch))
 
         for e in range(ini_epoch, epoch):
             # initialize tfrecorder: initialize each epoch to shuffle data
@@ -231,28 +227,35 @@ class WassersteinGAN:
                 n += 1
                 try:
                     # train critic
-                    # TODO: need split summary otherwise, it becomes wired.
-                    # TODO: check LSUN dataset. seems like the number in one epoch is quite small
                     for _ in range(self.__n_critic):
-                        val = [self.__train_op_critic, self.__loss_critic, self.__summary]
-                        _, tmp_loss, summary = self.__session.run(val, feed_dict=feed)
-                        # write tensorboard writer
-                        self.__writer_critic.add_summary(summary, i_summary_critic)
-                        i_summary_critic += 1
+                        val = [self.__train_op_critic, self.__loss_critic]
+                        _, tmp_loss = self.__session.run(val, feed_dict=feed)
                         loss_critic.append(tmp_loss)
 
                     # train generator
-                    val = [self.__train_op_generator, self.__loss_generator, self.__summary]
-                    _, loss_gen, summary = self.__session.run(val, feed_dict=feed)
-                    # write tensorboard writer
-                    self.__writer_generator.add_summary(summary, i_summary_generator)
-                    i_summary_generator += 1
+                    val = [self.__train_op_generator, self.__loss_generator]
+                    _, loss_gen = self.__session.run(val, feed_dict=feed)
                     loss_generator.append(loss_gen)
 
                     # print progress in epoch
                     if progress_interval is not None and n % progress_interval == 0:
-                        print('epoch %i-%i: [generator: %0.3f, critics: %0.3f]\r'
-                              % (e, n, np.average(loss_generator), np.average(loss_critic)), end='', flush=True)
+                        if np.isnan(np.average(loss_generator)) and np.isnan(np.average(loss_critic)):
+                            print()
+                            raise ValueError('loss for generator and critic are nan')
+                        if np.isnan(np.average(loss_critic)):
+                            print()
+                            raise ValueError('loss for critic is nan')
+                        if np.isnan(np.average(loss_generator)):
+                            print()
+                            raise ValueError('loss for generator is nan')
+
+                        if total_data_size is None:
+                            print('epoch %i-%i: [generator: %0.3f, critics: %0.3f]\r'
+                                  % (e, n, np.average(loss_generator), np.average(loss_critic)), end='', flush=True)
+                        else:
+                            perc = np.round(n/total_data_size, 3)
+                            print('epoch %i (%0.3f %%): [generator: %0.3f, critics: %0.3f]\r'
+                                  % (e, perc, np.average(loss_generator), np.average(loss_critic)), end='', flush=True)
 
                 except tf.errors.OutOfRangeError:
                     print()
@@ -269,11 +272,8 @@ class WassersteinGAN:
         self.__saver.save(self.__session, self.__checkpoint)
         np.savez('%s/meta.npz' % self.__checkpoint_dir,
                  learning_rate=learning_rate,
-                 i_summary_critic=i_summary_critic,
-                 i_summary_generator=i_summary_generator,
                  loss=loss,
-                 epoch=e+1,
-                 n_critic=self.__n_critic)
+                 epoch=e+1)
 
     def generate_image(self, random_variable=None):
         if random_variable is None:
