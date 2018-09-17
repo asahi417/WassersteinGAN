@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 import os
 from PIL import Image
-from .util import create_log, variable_summaries
+from .util import create_log
 from .base_model import BaseModel
 from .dataset_tool import tfrecord_parser
 
@@ -124,20 +124,16 @@ class WassersteinGAN:
                 image_shape = np.rint(width / (2*self.__down_scale))
                 size = tf.cast(tf.constant([image_shape, image_shape]), tf.int32)
                 input_image = tf.image.resize_images(input_image, size)
-            else:
-                image_shape = width
 
         with tf.variable_scope("generator", initializer=initializer):
             self.__generated_image = self.__base_model.generator(self.random_samples,
-                                                                 output_width=image_shape,
-                                                                 output_channel=ch,
                                                                  is_training=self.is_training,
                                                                  **self.__config_generator)
 
         with tf.variable_scope("critic", initializer=initializer):
-            prob_input = self.__base_model.critic(
+            logit_input = self.__base_model.critic(
                 input_image, is_training=self.is_training, **self.__config_critic)
-            prob_random = self.__base_model.critic(
+            logit_random = self.__base_model.critic(
                 self.__generated_image, is_training=self.is_training, reuse=True, **self.__config_critic)
 
         ################
@@ -149,39 +145,54 @@ class WassersteinGAN:
         var_critic = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='critic')
 
         # loss
-        self.__loss_critic = - tf.reduce_mean(prob_input - prob_random)
+        self.__loss_critic = - tf.reduce_mean(logit_input - logit_random)
         # tf.summary.scalar('eval_loss_critic', self.__loss_critic)
 
-        self.__loss_generator = - tf.reduce_mean(prob_random)
+        self.__loss_generator = - tf.reduce_mean(logit_random)
         # tf.summary.scalar('eval_loss_generator', self.__loss_generator)
 
         # optimizer
         if self.__optimizer == 'sgd':
-            optimizer = tf.train.GradientDescentOptimizer(self.__learning_rate)
+            optimizer_critic = tf.train.GradientDescentOptimizer(self.__learning_rate)
+            optimizer_generator = tf.train.GradientDescentOptimizer(self.__learning_rate)
         elif self.__optimizer == 'adam':
-            optimizer = tf.train.AdamOptimizer(self.__learning_rate)
+            optimizer_critic = tf.train.AdamOptimizer(self.__learning_rate, beta1=0.5)
+            optimizer_generator = tf.train.AdamOptimizer(self.__learning_rate, beta1=0.5)
         elif self.__optimizer == 'rmsprop':
-            optimizer = tf.train.RMSPropOptimizer(self.__learning_rate)
+            optimizer_critic = tf.train.RMSPropOptimizer(self.__learning_rate)
+            optimizer_generator = tf.train.RMSPropOptimizer(self.__learning_rate)
         else:
             raise ValueError('unknown optimizer !!')
 
         # train operation
-        self.__train_op_generator = optimizer.minimize(self.__loss_generator, var_list=var_generator)
+        self.__train_op_generator = optimizer_generator.minimize(self.__loss_generator, var_list=var_generator)
 
-        grads, _ = tf.clip_by_global_norm(tf.gradients(self.__loss_critic, var_critic), self.__clip)
-        self.__train_op_critic = optimizer.apply_gradients(zip(grads, var_critic))
+        if self.__clip is not None:
+            grads, _ = tf.clip_by_global_norm(tf.gradients(self.__loss_critic, var_critic), self.__clip)
+            self.__train_op_critic = optimizer_critic.apply_gradients(zip(grads, var_critic))
+        else:
+            self.__train_op_critic = optimizer_critic.minimize(self.__loss_critic, var_list=var_critic)
 
         ###########
         # logging #
         ###########
 
+        self.__log('variable critic')
         n_var = 0
-        for var in tf.trainable_variables():
+        for var in var_critic:
             sh = var.get_shape().as_list()
             self.__log('%s: %s' % (var.name, str(sh)))
             n_var += np.prod(sh)
             # write for tensorboard visualization
-            variable_summaries(var, var.name.split(':')[0].replace('/', '-'))
+            # variable_summaries(var, var.name.split(':')[0].replace('/', '-'))
+
+        self.__log('variable generator')
+        for var in var_generator:
+            sh = var.get_shape().as_list()
+            self.__log('%s: %s' % (var.name, str(sh)))
+            n_var += np.prod(sh)
+            # write for tensorboard visualization
+            # variable_summaries(var, var.name.split(':')[0].replace('/', '-'))
 
         self.__log('total variables: %i' % n_var)
 
@@ -192,8 +203,7 @@ class WassersteinGAN:
               epoch: int,
               path_to_tfrecord: str,
               progress_interval: int = None,
-              output_generated_image: bool = False,
-              total_data_size: int = None):
+              output_generated_image: bool = False):
 
         self.__logger = create_log('%s/log' % self.__checkpoint_dir)
         self.__log('checkpoint (%s), epoch (%i), learning rate (%0.7f), n critic (%i)'
@@ -214,9 +224,6 @@ class WassersteinGAN:
         epoch += ini_epoch
         feed = {self.__learning_rate: learning_rate}
 
-        if total_data_size is not None:
-            total_data_size = int(np.floor(total_data_size/self.__batch))
-
         for e in range(ini_epoch, epoch):
             # initialize tfrecorder: initialize each epoch to shuffle data
             self.__session.run(self.__data_iterator, feed_dict={self.__tfrecord_name: [path_to_tfrecord]})
@@ -227,7 +234,12 @@ class WassersteinGAN:
                 n += 1
                 try:
                     # train critic
-                    for _ in range(self.__n_critic):
+                    if n < 25 or n % 500 == 0:
+                        __n_critic = 100
+                    else:
+                        __n_critic = self.__n_critic
+
+                    for _ in range(__n_critic):
                         val = [self.__train_op_critic, self.__loss_critic]
                         _, tmp_loss = self.__session.run(val, feed_dict=feed)
                         loss_critic.append(tmp_loss)
@@ -249,13 +261,8 @@ class WassersteinGAN:
                             print()
                             raise ValueError('loss for generator is nan')
 
-                        if total_data_size is None:
-                            print('epoch %i-%i: [generator: %0.3f, critics: %0.3f]\r'
-                                  % (e, n, np.average(loss_generator), np.average(loss_critic)), end='', flush=True)
-                        else:
-                            perc = np.round(n/total_data_size, 3)
-                            print('epoch %i (%0.3f %%): [generator: %0.3f, critics: %0.3f]\r'
-                                  % (e, perc, np.average(loss_generator), np.average(loss_critic)), end='', flush=True)
+                        print('epoch %i-%i: [generator: %0.3f, critics: %0.3f]\r'
+                              % (e, n, np.average(loss_generator), np.average(loss_critic)), end='', flush=True)
 
                 except tf.errors.OutOfRangeError:
                     print()

@@ -125,21 +125,20 @@ class DCGAN:
                 image_shape = np.rint(width / (2*self.__down_scale))
                 size = tf.cast(tf.constant([image_shape, image_shape]), tf.int32)
                 input_image = tf.image.resize_images(input_image, size)
-            else:
-                image_shape = width
 
         with tf.variable_scope("generator", initializer=initializer):
             self.__generated_image = self.__base_model.generator(self.random_samples,
-                                                                 output_width=image_shape,
-                                                                 output_channel=ch,
                                                                  is_training=self.is_training,
                                                                  **self.__config_generator)
 
         with tf.variable_scope("critic", initializer=initializer):
-            prob_input = self.__base_model.critic(
+            logit_input = self.__base_model.critic(
                 input_image, is_training=self.is_training, **self.__config_critic)
-            prob_random = self.__base_model.critic(
+            prob_input = tf.nn.sigmoid(logit_input)
+
+            logit_random = self.__base_model.critic(
                 self.__generated_image, is_training=self.is_training, reuse=True, **self.__config_critic)
+            prob_random = tf.nn.sigmoid(logit_random)
 
         ################
         # optimization #
