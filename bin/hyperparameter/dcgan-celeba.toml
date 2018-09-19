@@ -1,12 +1,13 @@
-batch=128
+batch=32
 optimizer='adam'
 down_scale=1
 learning_rate=0.0002
 generator_advantage=200
+initializer='truncated_normal'
 
 [config]
 n_z=100
-image_shape=[128, 128, 3]
+image_shape=[64, 64, 3]
 
 [config_critic]
 mode='cnn'

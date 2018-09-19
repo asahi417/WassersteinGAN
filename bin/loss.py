@@ -16,6 +16,7 @@ def get_path(data, model):
 def get_options(parser):
     share_param = {'nargs': '?', 'action': 'store', 'const': None, 'choices': None, 'metavar': None}
     parser.add_argument('-m', '--model', help='Model.', required=True, type=str, **share_param)
+    parser.add_argument('-v', '--version', help='Version.', required=True, type=int, **share_param)
     parser.add_argument('--data', help='Dataset.', required=True, type=str, **share_param)
     return parser.parse_args()
 
@@ -26,10 +27,7 @@ if __name__ == '__main__':
 
     args = get_options(
         argparse.ArgumentParser(description='This script is ...', formatter_class=argparse.RawTextHelpFormatter))
-    _tfrecord, _ckpt, _param = get_path(args.data, args.model)
+    _tfrecord, _ckpt, _ = get_path(args.data, args.model)
 
-    _param = toml.load(open(_param))
-    path_ckpt, _ = wgan.checkpoint_version(_ckpt, _param)
-
-    stat = np.load('%s/meta.npz' % path_ckpt)
+    stat = np.load('%s/v%i/meta.npz' % (_ckpt, args.version))
     print(pd.DataFrame(stat['loss'], columns=['G', 'C']))

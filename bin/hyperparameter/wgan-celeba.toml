@@ -1,13 +1,14 @@
 gradient_clip=0.01
-down_scale = 1
+down_scale=1
 batch=64
 optimizer='adam'
 learning_rate=0.00005
 n_critic=5
+initializer='truncated_normal'
 
 [config]
 n_z=100
-image_shape=[128, 128, 3]
+image_shape=[64, 64, 3]
 
 [config_critic]
 mode='cnn'

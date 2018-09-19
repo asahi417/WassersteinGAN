@@ -21,7 +21,8 @@ class WassersteinGAN:
                  optimizer: str = 'sgd',
                  debug: bool = True,
                  n_thread: int = 4,
-                 down_scale: int = None):
+                 down_scale: int = None,
+                 initializer: str = 'variance_scaling'):
         """
         :param config:
             n_z=128
@@ -54,6 +55,7 @@ class WassersteinGAN:
         self.__logger = create_log() if debug else None
 
         self.__n_thread = n_thread
+        self.__initializer = initializer
 
         self.__log('BUILD WassersteinGAN GRAPH: generator (%s), critic (%s)'
                    % (config_generator['mode'], config_critic['mode']))
@@ -77,7 +79,13 @@ class WassersteinGAN:
         """ Create Network, Define Loss Function and Optimizer """
 
         # initializer
-        initializer = tf.contrib.layers.variance_scaling_initializer(seed=0)
+        if self.__initializer == 'variance_scaling':
+            initializer = tf.contrib.layers.variance_scaling_initializer()
+        elif self.__initializer == 'truncated_normal':
+            initializer = tf.initializers.truncated_normal(stddev=0.02)
+        else:
+            raise ValueError('unknown initializer: %s' % self.__initializer)
+
         # load tfrecord instance
         self.__tfrecord_name = tf.placeholder(tf.string, name='tfrecord_dataset_name')
         data_set_api = tf.data.TFRecordDataset(self.__tfrecord_name, compression_type='GZIP')
@@ -111,19 +119,19 @@ class WassersteinGAN:
         self.random_samples = tf.placeholder_with_default(
             random_samples, shape=[None, self.__config["n_z"]], name='random_samples')
 
-        # make pixel to be in [-1, 1]
-        input_image = tf.cast(self.__input_image, tf.float32)
-        input_image = input_image * 2 / 255 - 1
-
+        input_image = self.__input_image
         # bilinear interpolation for down scale
         height, width, ch = self.__config['image_shape']
         assert height == width
-
         with tf.name_scope("resize_image"):
             if self.__down_scale is not None:
-                image_shape = np.rint(width / (2*self.__down_scale))
+                image_shape = np.rint(width / (2 * self.__down_scale))
                 size = tf.cast(tf.constant([image_shape, image_shape]), tf.int32)
                 input_image = tf.image.resize_images(input_image, size)
+
+        # make pixel to be in [-1, 1]
+        input_image = tf.cast(input_image, tf.float32)
+        input_image = input_image * 2 / 255 - 1
 
         with tf.variable_scope("generator", initializer=initializer):
             self.__generated_image = self.__base_model.generator(self.random_samples,
@@ -288,6 +296,8 @@ class WassersteinGAN:
         result = self.__session.run(self.__generated_image,
                                     feed_dict={self.random_samples: random_variable,
                                                self.is_training: False})
+        # print(result.shape, np.max(result), np.min(result), np.mean(result))
+        result = (result + 1) / 2
         return np.rint(result[0] * 255).astype('uint8')
 
     def __log(self, statement):

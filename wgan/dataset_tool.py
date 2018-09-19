@@ -58,11 +58,11 @@ class TFRecorder:
             print(*args, **kwargs)
 
     def create(self,
-               shuffle_seed: int = 0,
-               validation_split: float = None):
+               crop_value: int,
+               resize_value: int):
 
         image_files = sorted(glob('%s/*.png' % self.path_to_dataset))
-        image_files = shuffle_data(image_files, seed=shuffle_seed)
+        # image_files = shuffle_data(image_files, seed=shuffle_seed)
 
         def write(image_filenames, name, mode):
             full_size = len(image_filenames)
@@ -72,15 +72,21 @@ class TFRecorder:
                 time_stamp = time()
                 time_stamp_start = time()
                 for n, single_image_path in enumerate(image_filenames):
-                    img_instance = Image.open(single_image_path)
-                    if self.dataset_name == 'lsun':
-                        img_instance = img_instance.resize((128, 128))
-                    img = np.asarray(img_instance)
-                    if self.dataset_name == 'celeba':
-                        center_x, center_y = 89, 121
-                        img = img[center_y - 64: center_y + 64, center_x - 64: center_x + 64]
+                    # open as pillow instance
+                    image = Image.open(single_image_path)
+                    w, h = image.size
+                    # cropping
+                    upper = int(np.floor(h / 2 - crop_value / 2))
+                    lower = int(np.floor(h / 2 + crop_value / 2))
+                    left = int(np.floor(w / 2 - crop_value / 2))
+                    right = int(np.floor(w / 2 + crop_value / 2))
+                    image = image.crop((left, upper, right, lower))
 
-                    if img.shape != (128, 128, 3):
+                    # resize
+                    image = image.resize((resize_value, resize_value))
+                    img = np.asarray(image)
+
+                    if img.shape != (resize_value, resize_value, 3):
                         self.my_print('%s: %s' % (str(img.shape), single_image_path))
                         img = img[:, :, :3]
                     img = np.rint(img).clip(0, 255).astype(np.uint8)
@@ -103,16 +109,16 @@ class TFRecorder:
                     writer.write(ex.SerializeToString())
 
         # apply full data
-        write(image_files, '%s.tfrecord' % self.path_to_save, mode='full')
+        write(image_files, '%s-c%i-r%i.tfrecord' % (self.path_to_save, crop_value, resize_value), mode='full')
 
-        if validation_split is not None:
-            raise_error(validation_split > 1, 'validation_split has to be in [0,1]')
-
-            # apply train data
-            write(image_files[int(np.rint(len(image_files) * validation_split)):],
-                  '%s-train.tfrecord' % self.path_to_save, mode='train')
-
-            # apply test data
-            write(image_files[:int(np.rint(len(image_files) * validation_split))],
-                  '%s-test.tfrecord' % self.path_to_save, mode='test')
+        # if validation_split is not None:
+        #     raise_error(validation_split > 1, 'validation_split has to be in [0,1]')
+        #
+        #     # apply train data
+        #     write(image_files[int(np.rint(len(image_files) * validation_split)):],
+        #           '%s-train.tfrecord' % self.path_to_save, mode='train')
+        #
+        #     # apply test data
+        #     write(image_files[:int(np.rint(len(image_files) * validation_split))],
+        #           '%s-test.tfrecord' % self.path_to_save, mode='test')
 

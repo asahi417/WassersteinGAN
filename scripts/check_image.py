@@ -18,17 +18,32 @@ if not os.path.exists(OUTPUT):
 def get_options(parser):
     share_param = {'nargs': '?', 'action': 'store', 'const': None, 'choices': None, 'metavar': None}
     parser.add_argument('-n', '--num', help='number.', default=10, type=int, **share_param)
+    parser.add_argument('-c', '--crop', help='number.', default=10, type=int, **share_param)
+    parser.add_argument('-r', '--resize', help='number.', default=10, type=int, **share_param)
     parser.add_argument('--data', help='Dataset.', required=True, type=str, **share_param)
     return parser.parse_args()
 
 
-def load_and_save(n, data_name):
+def load_and_save(n,
+                  data_name,
+                  crop=64,
+                  resize=64):
     image_filenames = sorted(glob('%s/*.png' % PATH_DATA[data_name]))
 
     for number, image_path in enumerate(image_filenames):
         # open as pillow instance
         image = Image.open(image_path)
-        image = image.resize((128, 128))
+        w, h = image.size
+
+        # cropping
+        upper = int(np.floor(h / 2 - crop / 2))
+        lower = int(np.floor(h / 2 + crop / 2))
+        left = int(np.floor(w / 2 - crop / 2))
+        right = int(np.floor(w / 2 + crop / 2))
+        image = image.crop((left, upper, right, lower))
+
+        # resize
+        image = image.resize((resize, resize))
 
         # pillow instance -> numpy array
         image = np.array(image)
@@ -47,4 +62,4 @@ def load_and_save(n, data_name):
 if __name__ == '__main__':
     args = get_options(
         argparse.ArgumentParser(description='This script is ...', formatter_class=argparse.RawTextHelpFormatter))
-    load_and_save(args.num, args.data)
+    load_and_save(args.num, args.data, args.crop, args.resize)

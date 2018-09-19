@@ -89,6 +89,7 @@ class BaseModel:
                         ):
         """ DCGAN Generator: Batch norm for all layer except last layer.
         - channel ans filter width of transposed CNN is fixed as it produce 64 x 64 x 3 image
+        - each elements are activated by tanh (so in range of -1 to 1)
 
         :param inputs: input tensor (batch, latent dim)
         :param is_training:
@@ -223,7 +224,7 @@ class BaseModel:
         return array_ops.shape(inputs)[0]
 
     @staticmethod
-    def bn(input_layer, is_training, batch_norm_decay,):
+    def bn(input_layer, is_training, batch_norm_decay):
             if is_training is None:
                 raise ValueError('Specify train phase by `is_training`')
             return tf.contrib.layers.batch_norm(input_layer,
