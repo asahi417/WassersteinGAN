@@ -121,14 +121,14 @@ class DCGAN:
             random_samples, shape=[None, self.__config["n_z"]], name='random_samples')
 
         input_image = self.__input_image
-        # bilinear interpolation for down scale
-        height, width, ch = self.__config['image_shape']
-        assert height == width
-        with tf.name_scope("resize_image"):
-            if self.__down_scale is not None:
-                image_shape = np.rint(width / (2*self.__down_scale))
-                size = tf.cast(tf.constant([image_shape, image_shape]), tf.int32)
-                input_image = tf.image.resize_images(input_image, size)
+        # # bilinear interpolation for down scale
+        # height, width, ch = self.__config['image_shape']
+        # assert height == width
+        # with tf.name_scope("resize_image"):
+        #     if self.__down_scale is not None:
+        #         image_shape = np.rint(width / (2*self.__down_scale))
+        #         size = tf.cast(tf.constant([image_shape, image_shape]), tf.int32)
+        #         input_image = tf.image.resize_images(input_image, size)
 
         # make pixel to be in [-1, 1]
         input_image = tf.cast(input_image, tf.float32)

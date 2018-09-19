@@ -1,6 +1,5 @@
-batch=32
+batch=64
 optimizer='adam'
-down_scale=1
 learning_rate=0.0002
 generator_advantage=200
 initializer='truncated_normal'
