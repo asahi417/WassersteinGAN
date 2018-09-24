@@ -21,7 +21,7 @@ if not os.path.exists(OUTPUT):
 def get_options(parser):
     share_param = {'nargs': '?', 'action': 'store', 'const': None, 'choices': None, 'metavar': None}
     parser.add_argument('-n', '--num', help='number.', default=10, type=int, **share_param)
-    parser.add_argument('-c', '--crop', help='number.', default=128, type=int, **share_param)
+    parser.add_argument('-c', '--crop', help='number.', default=None, type=int, **share_param)
     parser.add_argument('-r', '--resize', help='number.', default=64, type=int, **share_param)
     parser.add_argument('--data', help='Dataset.', required=True, type=str, **share_param)
     return parser.parse_args()
@@ -79,13 +79,21 @@ if __name__ == '__main__':
     args = get_options(
         argparse.ArgumentParser(description='This script is ...', formatter_class=argparse.RawTextHelpFormatter))
     recorder = TestTFRecord(image_shape=[args.resize, args.resize, 3], batch_size=1)
-    recorder.session.run(recorder.data_iterator,
-                         feed_dict={recorder.tfrecord_name: '%s/%s-c%i-r%i.tfrecord'
-                                                            % (PATH_TFRECORD, args.data, args.crop, args.resize)})
+
+    if args.crop is None:
+        tfrecord = '%s/%s-r%i.tfrecord' % (PATH_TFRECORD, args.data, args.resize)
+    else:
+        tfrecord = '%s/%s-c%i-r%i.tfrecord' % (PATH_TFRECORD, args.data, args.crop, args.resize)
+
+    recorder.session.run(recorder.data_iterator, feed_dict={recorder.tfrecord_name: tfrecord})
     for e in range(args.num):
         img = recorder.session.run(recorder.input_image)
         img = img[0]
         img = (img + 1) / 2
         img = np.rint(img * 255).astype('uint8')
         img = Image.fromarray(img.astype('uint8'), 'RGB')
-        img.save('%s/%s-c%i-r%i-%i.png' % (OUTPUT, args.data, args.crop, args.resize, e))
+
+        if args.crop is None:
+            img.save('%s/%s-r%i-%i.png' % (OUTPUT, args.data, args.resize, e))
+        else:
+            img.save('%s/%s-c%i-r%i-%i.png' % (OUTPUT, args.data, args.crop, args.resize, e))

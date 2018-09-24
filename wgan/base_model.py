@@ -1,5 +1,4 @@
 import tensorflow as tf
-import numpy as np
 from tensorflow.python.util import nest
 from tensorflow.python.ops import array_ops
 
@@ -44,9 +43,9 @@ class BaseModel:
 
     def __critic_cnn(self,
                      inputs,
-                     is_training=None,
                      batch_norm: bool = True,
                      batch_norm_decay: float = 0.999,
+                     batch_norm_scale: bool = True,
                      leaky_relu_alpha: float = 0.2,
                      reuse: bool = None,
                      scope: str = None
@@ -73,7 +72,10 @@ class BaseModel:
                 )
                 if i != 0:  # no batch norm for input layer
                     if batch_norm:
-                        inputs = self.bn(inputs, is_training=is_training, batch_norm_decay=batch_norm_decay)
+                        inputs = self.bn(inputs,
+                                         is_training=True,
+                                         batch_norm_decay=batch_norm_decay,
+                                         scale=batch_norm_scale)
                     inputs = leaky_relu(inputs)
 
             # flatten and get logit
@@ -86,6 +88,9 @@ class BaseModel:
                         batch_norm: bool = True,
                         batch_norm_decay: float = 0.999,
                         activation: str = 'relu',
+                        batch_norm_scale: bool = True,
+                        reuse: bool = None,
+                        scope: str = None
                         ):
         """ DCGAN Generator: Batch norm for all layer except last layer.
         - channel ans filter width of transposed CNN is fixed as it produce 64 x 64 x 3 image
@@ -103,27 +108,32 @@ class BaseModel:
         tmp_ch = self.check_input_dimension(inputs, dim=2)
         batch_size = self.dynamic_batch_size(inputs)
 
-        layer = tf.reshape(inputs, [batch_size, 1, 1, tmp_ch])
-        for i, (ch, wid) in enumerate(zip(CNN_CHANNEL, CNN_WIDTH)):
-            layer = self.convolution_trans(
-                layer,
-                weight_shape=[4, 4, ch, tmp_ch],
-                output_shape=[batch_size, wid, wid, ch],
-                stride=[4, 4] if i == 0 else [2, 2],
-                scope='conv_%i' % i,
-                padding='SAME',
-                bias=False
-            )
-            tmp_ch = ch
-            # activation: except last layer, which uses `tanh`, every layer uses preset activation
-            if i == len(CNN_CHANNEL) - 1:
-                layer = tf.tanh(layer)
-            else:
-                if batch_norm:
-                    layer = self.bn(layer, is_training=is_training, batch_norm_decay=batch_norm_decay)
-                layer = activation_fn(layer)
+        with tf.variable_scope(scope or "dcgan_generator", reuse=reuse):
 
-        return layer
+            layer = tf.reshape(inputs, [batch_size, 1, 1, tmp_ch])
+            for i, (ch, wid) in enumerate(zip(CNN_CHANNEL, CNN_WIDTH)):
+                layer = self.convolution_trans(
+                    layer,
+                    weight_shape=[4, 4, ch, tmp_ch],
+                    output_shape=[batch_size, wid, wid, ch],
+                    stride=[4, 4] if i == 0 else [2, 2],
+                    scope='conv_%i' % i,
+                    padding='SAME',
+                    bias=False
+                )
+                tmp_ch = ch
+                # activation: except last layer, which uses `tanh`, every layer uses preset activation
+                if i == len(CNN_CHANNEL) - 1:
+                    layer = tf.tanh(layer)
+                else:
+                    if batch_norm:
+                        layer = self.bn(layer,
+                                        is_training=is_training,
+                                        batch_norm_decay=batch_norm_decay,
+                                        scale=batch_norm_scale)
+                    layer = activation_fn(layer)
+
+            return layer
 
     @staticmethod
     def check_input_dimension(inputs, dim: int):
@@ -224,12 +234,16 @@ class BaseModel:
         return array_ops.shape(inputs)[0]
 
     @staticmethod
-    def bn(input_layer, is_training, batch_norm_decay):
+    def bn(input_layer,
+           is_training,
+           batch_norm_decay,
+           scale=True,
+           updates_collections=None):
             if is_training is None:
                 raise ValueError('Specify train phase by `is_training`')
             return tf.contrib.layers.batch_norm(input_layer,
                                                 decay=batch_norm_decay,
                                                 is_training=is_training,
-                                                updates_collections=None,
-                                                scale=True)
+                                                updates_collections=updates_collections,
+                                                scale=scale)
 

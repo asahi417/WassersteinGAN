@@ -93,7 +93,7 @@ class DCGAN:
         # convert record to tensor
         data_set_api = data_set_api.map(tfrecord_parser(self.__config['image_shape']), self.__n_thread)
         # set batch size
-        data_set_api = data_set_api.shuffle(buffer_size=10000)
+        data_set_api = data_set_api.shuffle(buffer_size=50000)
         data_set_api = data_set_api.batch(self.__batch)
         # make iterator
         iterator = tf.data.Iterator.from_structure(data_set_api.output_types, data_set_api.output_shapes)
@@ -113,39 +113,36 @@ class DCGAN:
         # tf.summary.scalar('meta_learning_rate', self.__learning_rate)
 
         self.is_training = tf.placeholder_with_default(True, [])
+        self.is_training_generator = tf.placeholder_with_default(False, [])
 
         # get random variable
-        __batch = self.__base_model.dynamic_batch_size(self.__input_image)
-        random_samples = tf.random_normal((__batch, self.__config["n_z"]), mean=0, stddev=1, dtype=tf.float32)
+        dynamic_batch = self.__base_model.dynamic_batch_size(self.__input_image)
+        self.batch_generator = tf.placeholder_with_default(dynamic_batch, shape=[], name='batch')
+        random_samples = tf.random_normal((self.batch_generator, self.__config["n_z"]),
+                                          mean=0, stddev=1, dtype=tf.float32)
         self.random_samples = tf.placeholder_with_default(
             random_samples, shape=[None, self.__config["n_z"]], name='random_samples')
 
-        input_image = self.__input_image
-        # # bilinear interpolation for down scale
-        # height, width, ch = self.__config['image_shape']
-        # assert height == width
-        # with tf.name_scope("resize_image"):
-        #     if self.__down_scale is not None:
-        #         image_shape = np.rint(width / (2*self.__down_scale))
-        #         size = tf.cast(tf.constant([image_shape, image_shape]), tf.int32)
-        #         input_image = tf.image.resize_images(input_image, size)
-
         # make pixel to be in [-1, 1]
-        input_image = tf.cast(input_image, tf.float32)
+        input_image = tf.cast(self.__input_image, tf.float32)
         input_image = input_image * 2 / 255 - 1
 
         with tf.variable_scope("generator", initializer=initializer):
-            self.__generated_image = self.__base_model.generator(self.random_samples,
-                                                                 is_training=self.is_training,
-                                                                 **self.__config_generator)
+            self.__generated_image = self.__base_model.generator(
+                self.random_samples,
+                is_training=True,
+                **self.__config_generator)
+            self.__generated_image_dev = self.__base_model.generator(
+                self.random_samples,
+                is_training=False,
+                reuse=True,
+                **self.__config_generator)
 
         with tf.variable_scope("critic", initializer=initializer):
-            logit_input = self.__base_model.critic(
-                input_image, is_training=self.is_training, **self.__config_critic)
+            logit_input = self.__base_model.critic(input_image, **self.__config_critic)
             prob_input = tf.nn.sigmoid(logit_input)
 
-            logit_random = self.__base_model.critic(
-                self.__generated_image, is_training=self.is_training, reuse=True, **self.__config_critic)
+            logit_random = self.__base_model.critic(self.__generated_image, reuse=True, **self.__config_critic)
             prob_random = tf.nn.sigmoid(logit_random)
 
         ################
@@ -162,7 +159,7 @@ class DCGAN:
         log_likeli = tf.log(prob_input + eps) + tf.log(1.0 - prob_random + eps)
         self.__loss_critic = - tf.reduce_mean(log_likeli)
 
-        self.__loss_generator = -tf.reduce_mean(tf.log(prob_random + eps))
+        self.__loss_generator = - tf.reduce_mean(tf.log(prob_random + eps))
         # tf.summary.scalar('eval_loss_generator', self.__loss_generator)
 
         # optimizer
@@ -236,7 +233,8 @@ class DCGAN:
             learning_rate = self.__ini_learning_rate
 
         epoch += ini_epoch
-        feed = {self.__learning_rate: learning_rate}
+        feed_critic = {self.__learning_rate: learning_rate}
+        feed_generator = {self.__learning_rate: learning_rate, self.batch_generator: self.__batch}
 
         for e in range(ini_epoch, epoch):
             # initialize tfrecorder: initialize each epoch to shuffle data
@@ -249,14 +247,14 @@ class DCGAN:
                 try:
                     # train critic
                     val = [self.__train_op_critic, self.__loss_critic]
-                    _, tmp_loss = self.__session.run(val, feed_dict=feed)
-                    loss_critic.append(tmp_loss)
+                    _, loss_cri = self.__session.run(val, feed_dict=feed_critic)
+                    loss_critic.append(loss_cri)
 
                     # train generator
-                    n_gen = 2 if e == 0 and n < self.__generator_advantage else 1
-                    for _ in range(n_gen):
-                        val = [self.__train_op_generator, self.__loss_generator]
-                        _, loss_gen = self.__session.run(val, feed_dict=feed)
+                    for _ in range(self.__generator_advantage):
+                        val = [self.__train_op_generator, self.__loss_generator, self.__generated_image_dev]
+
+                        _, loss_gen, gen_img = self.__session.run(val, feed_dict=feed_generator)
                         loss_generator.append(loss_gen)
 
                     # print progress in epoch
@@ -280,10 +278,14 @@ class DCGAN:
                     self.__log('epoch %i: loss generator (%0.3f), loss critics (%0.3f)'
                                % (e, loss_generator, loss_critic))
                     loss.append([loss_generator, loss_critic])
+
                     if output_generated_image:
+                        # output generated images
+                        gen_img = (gen_img + 1) / 2
+                        gen_img = np.rint(gen_img * 255).astype('uint8')
                         for _i in range(10):
-                            img = self.generate_image()
-                            Image.fromarray(img, 'RGB').save('%s/gen_img_%i-%i.png' % (self.__checkpoint_dir, e, _i))
+                            Image.fromarray(gen_img[_i], 'RGB').save(
+                                '%s/gen_img_%i-%i.png' % (self.__checkpoint_dir, e, _i))
                     break
 
         self.__saver.save(self.__session, self.__checkpoint)
@@ -294,14 +296,14 @@ class DCGAN:
 
     def generate_image(self, random_variable=None):
         if random_variable is None:
-            random_variable = np.random.randn(1, self.__config["n_z"])
-        result = self.__session.run(self.__generated_image,
+            random_variable = np.random.randn(self.__batch, self.__config["n_z"])
+        result = self.__session.run(self.__generated_image_dev,
                                     feed_dict={self.random_samples: random_variable,
                                                self.is_training: False})
 
         # print(result.shape, np.max(result), np.min(result), np.mean(result))
         result = (result + 1)/2
-        return np.rint(result[0] * 255).astype('uint8')
+        return [np.rint(_r * 255).astype('uint8') for _r in result]
 
     def __log(self, statement):
         if self.__logger is not None:

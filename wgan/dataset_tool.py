@@ -43,7 +43,7 @@ class TFRecorder:
                  print_progress: bool = True,
                  progress_interval: int = 10):
 
-        raise_error(dataset_name not in ['celeba', 'lsun'], 'unknown data: %s' % dataset_name)
+        # raise_error(dataset_name not in ['celeba', 'lsun'], 'unknown data: %s' % dataset_name)
         self.dataset_name = dataset_name
         self.path_to_dataset = path_to_dataset
         self.path_to_save = '%s/%s' % (tfrecord_dir, dataset_name)
@@ -58,11 +58,12 @@ class TFRecorder:
             print(*args, **kwargs)
 
     def create(self,
-               crop_value: int,
-               resize_value: int):
+               resize_value: int,
+               crop_value: int = None):
 
-        image_files = sorted(glob('%s/*.png' % self.path_to_dataset))
-        # image_files = shuffle_data(image_files, seed=shuffle_seed)
+        image_files = glob('%s/*.png' % self.path_to_dataset)
+        image_files += glob('%s/*.jpg' % self.path_to_dataset)
+        image_files = sorted(image_files)
 
         def write(image_filenames, name, mode):
             full_size = len(image_filenames)
@@ -75,12 +76,13 @@ class TFRecorder:
                     # open as pillow instance
                     image = Image.open(single_image_path)
                     w, h = image.size
-                    # cropping
-                    upper = int(np.floor(h / 2 - crop_value / 2))
-                    lower = int(np.floor(h / 2 + crop_value / 2))
-                    left = int(np.floor(w / 2 - crop_value / 2))
-                    right = int(np.floor(w / 2 + crop_value / 2))
-                    image = image.crop((left, upper, right, lower))
+                    if crop_value is not None:
+                        # cropping
+                        upper = int(np.floor(h / 2 - crop_value / 2))
+                        lower = int(np.floor(h / 2 + crop_value / 2))
+                        left = int(np.floor(w / 2 - crop_value / 2))
+                        right = int(np.floor(w / 2 + crop_value / 2))
+                        image = image.crop((left, upper, right, lower))
 
                     # resize
                     image = image.resize((resize_value, resize_value))
@@ -109,7 +111,10 @@ class TFRecorder:
                     writer.write(ex.SerializeToString())
 
         # apply full data
-        write(image_files, '%s-c%i-r%i.tfrecord' % (self.path_to_save, crop_value, resize_value), mode='full')
+        if crop_value is not None:
+            write(image_files, '%s-c%i-r%i.tfrecord' % (self.path_to_save, crop_value, resize_value), mode='full')
+        else:
+            write(image_files, '%s-r%i.tfrecord' % (self.path_to_save, resize_value), mode='full')
 
         # if validation_split is not None:
         #     raise_error(validation_split > 1, 'validation_split has to be in [0,1]')

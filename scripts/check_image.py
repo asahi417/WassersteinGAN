@@ -8,7 +8,12 @@ import numpy as np
 from PIL import Image
 from glob import glob
 
-PATH_DATA = dict(celeba='./datasets/celeba/img/img_align_celeba', lsun='./datasets/lsun/data_train')
+PATH_DATA = dict(
+    celeba='./datasets/celeba/img/img_align_celeba',
+    lsun='./datasets/lsun/train',
+    celeba_v1='./datasets/celeba_v1/128_crop'
+)
+
 OUTPUT = os.getenv('OUTPUT', './scripts/check_image')
 
 if not os.path.exists(OUTPUT):
@@ -18,32 +23,37 @@ if not os.path.exists(OUTPUT):
 def get_options(parser):
     share_param = {'nargs': '?', 'action': 'store', 'const': None, 'choices': None, 'metavar': None}
     parser.add_argument('-n', '--num', help='number.', default=10, type=int, **share_param)
-    parser.add_argument('-c', '--crop', help='number.', default=10, type=int, **share_param)
-    parser.add_argument('-r', '--resize', help='number.', default=10, type=int, **share_param)
+    parser.add_argument('-c', '--crop', help='number.', default=None, type=int, **share_param)
+    parser.add_argument('-r', '--resize', help='number.', default=None, type=int, **share_param)
     parser.add_argument('--data', help='Dataset.', required=True, type=str, **share_param)
     return parser.parse_args()
 
 
 def load_and_save(n,
                   data_name,
-                  crop=64,
-                  resize=64):
-    image_filenames = sorted(glob('%s/*.png' % PATH_DATA[data_name]))
+                  crop,
+                  resize):
+    image_files = glob('%s/*.png' % PATH_DATA[data_name])
+    image_files += glob('%s/*.jpg' % PATH_DATA[data_name])
+    image_filenames = sorted(image_files)
+    print('total_size:', len(image_filenames))
 
     for number, image_path in enumerate(image_filenames):
         # open as pillow instance
         image = Image.open(image_path)
         w, h = image.size
 
-        # cropping
-        upper = int(np.floor(h / 2 - crop / 2))
-        lower = int(np.floor(h / 2 + crop / 2))
-        left = int(np.floor(w / 2 - crop / 2))
-        right = int(np.floor(w / 2 + crop / 2))
-        image = image.crop((left, upper, right, lower))
+        if crop is not None:
+            # cropping
+            upper = int(np.floor(h / 2 - crop / 2))
+            lower = int(np.floor(h / 2 + crop / 2))
+            left = int(np.floor(w / 2 - crop / 2))
+            right = int(np.floor(w / 2 + crop / 2))
+            image = image.crop((left, upper, right, lower))
 
-        # resize
-        image = image.resize((resize, resize))
+        if resize is not None:
+            # resize
+            image = image.resize((resize, resize))
 
         # pillow instance -> numpy array
         image = np.array(image)

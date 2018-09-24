@@ -1,5 +1,3 @@
-import wgan
-import toml
 import os
 import argparse
 import numpy as np

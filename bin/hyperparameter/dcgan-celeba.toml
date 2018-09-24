@@ -1,7 +1,7 @@
 batch=64
 optimizer='adam'
-learning_rate=0.0002
-generator_advantage=200
+learning_rate=0.00002
+generator_advantage=2
 initializer='truncated_normal'
 
 [config]
@@ -10,9 +10,9 @@ image_shape=[64, 64, 3]
 
 [config_critic]
 mode='cnn'
-parameter={batch_norm=true, batch_norm_decay=0.9}
+parameter={batch_norm=true, batch_norm_decay=0.99, batch_norm_scale=true}
 
 [config_generator]
 mode='cnn'
-parameter={batch_norm=true, batch_norm_decay=0.9}
+parameter={batch_norm=true, batch_norm_decay=0.99, batch_norm_scale=true}
 

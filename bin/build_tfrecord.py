@@ -3,13 +3,16 @@ import os
 import argparse
 
 PATH_TFRECORD = os.getenv('PATH_TFRECORD', './datasets/tfrecords')
-PATH_DATA = dict(celeba='./datasets/celeba/img/img_align_celeba',
-                 lsun='./datasets/lsun/data_train')
+PATH_DATA = dict(
+    celeba='./datasets/celeba/img/img_align_celeba',
+    lsun='./datasets/lsun/train',
+    celeba_v1='./datasets/celeba_v1/128_crop'
+)
 
 
 def get_options(parser):
     share_param = {'nargs': '?', 'action': 'store', 'const': None, 'choices': None, 'metavar': None}
-    parser.add_argument('-c', '--crop', help='number.', default=128, type=int, **share_param)
+    parser.add_argument('-c', '--crop', help='number.', default=None, type=int, **share_param)
     parser.add_argument('-r', '--resize', help='number.', default=64, type=int, **share_param)
     parser.add_argument('--data', help='Dataset.', required=True, type=str, **share_param)
     return parser.parse_args()
@@ -25,7 +28,3 @@ if __name__ == '__main__':
         crop_value=args.crop,
         resize_value=args.resize
     )
-    # if args.split:
-    #     recorder.create(validation_split=0.2)
-    # else:
-    #     recorder.create()
