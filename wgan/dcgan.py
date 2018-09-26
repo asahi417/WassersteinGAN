@@ -113,7 +113,6 @@ class DCGAN:
         # tf.summary.scalar('meta_learning_rate', self.__learning_rate)
 
         self.is_training = tf.placeholder_with_default(True, [])
-        self.is_training_generator = tf.placeholder_with_default(False, [])
 
         # get random variable
         dynamic_batch = self.__base_model.dynamic_batch_size(self.__input_image)
@@ -160,7 +159,6 @@ class DCGAN:
         self.__loss_critic = - tf.reduce_mean(log_likeli)
 
         self.__loss_generator = - tf.reduce_mean(tf.log(prob_random + eps))
-        # tf.summary.scalar('eval_loss_generator', self.__loss_generator)
 
         # optimizer
         if self.__optimizer == 'sgd':

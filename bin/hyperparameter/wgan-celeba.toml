@@ -1,7 +1,9 @@
 gradient_clip=0.01
+#gradient_penalty=10
+
 batch=64
 optimizer='adam'
-learning_rate=0.00005
+learning_rate=0.000005
 n_critic=5
 initializer='truncated_normal'
 
@@ -11,9 +13,8 @@ image_shape=[64, 64, 3]
 
 [config_critic]
 mode='cnn'
-parameter={batch_norm=true, batch_norm_decay=0.9}
+parameter={batch_norm=true, batch_norm_decay=0.99, batch_norm_scale=true}
 
 [config_generator]
 mode='cnn'
-parameter={batch_norm=true, batch_norm_decay=0.9}
-
+parameter={batch_norm=true, batch_norm_decay=0.99, batch_norm_scale=true}
