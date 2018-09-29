@@ -20,6 +20,7 @@ setup(
         'numpy',
         'pandas',
         'Pillow',
-        'toml'
+        'toml',
+        'scipy'
     ]
 )

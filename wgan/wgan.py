@@ -23,7 +23,8 @@ class WassersteinGAN:
                  debug: bool = True,
                  n_thread: int = 4,
                  down_scale: int = None,
-                 initializer: str = 'variance_scaling'):
+                 initializer: str = 'variance_scaling',
+                 overdose: bool=False):
         """
         :param config:
             n_z=128
@@ -40,6 +41,7 @@ class WassersteinGAN:
         # get generator and critic
         self.__checkpoint_dir = checkpoint_dir
         self.__checkpoint = '%s/model.ckpt' % checkpoint_dir
+        self.__overdose = overdose
 
         self.__config_critic = config_critic['parameter']
         self.__config_generator = config_generator['parameter']
@@ -111,9 +113,6 @@ class WassersteinGAN:
             tf_record_input, [None] + self.__config['image_shape'], name="input")
 
         self.__learning_rate = tf.placeholder(tf.float32, name='learning_rate')
-        # tf.summary.scalar('meta_learning_rate', self.__learning_rate)
-
-        self.is_training = tf.placeholder_with_default(True, [])
 
         # get random variable
         dynamic_batch = self.__base_model.dynamic_batch_size(self.__input_image)
@@ -251,12 +250,17 @@ class WassersteinGAN:
                 n += 1
                 try:
                     # train critic
-                    # if n < 25 or n % 500 == 0:
-                    #     __n_critic = 100
-                    # else:
-                    #     __n_critic = self.__n_critic
+                    __n_critic = self.__n_critic
 
-                    for _ in range(self.__n_critic):
+                    if self.__overdose:
+                        # get the discriminator properly trained at the start
+                        # https://github.com/cameronfabbri/Wasserstein-GAN-Tensorflow/blob/master/train.py#L110
+                        if n < 25 and e == 0:
+                            __n_critic = 100
+                        elif n % 500 == 0:
+                            __n_critic = 100
+
+                    for _ in range(__n_critic):
                         val = [self.__train_op_critic, self.__loss_critic]
                         _, tmp_loss = self.__session.run(val, feed_dict=feed_critic)
                         loss_critic.append(tmp_loss)
@@ -307,8 +311,7 @@ class WassersteinGAN:
         if random_variable is None:
             random_variable = np.random.randn(self.__batch, self.__config["n_z"])
         result = self.__session.run(self.__generated_image,
-                                    feed_dict={self.random_samples: random_variable,
-                                               self.is_training: False})
+                                    feed_dict={self.random_samples: random_variable})
         # print(result.shape, np.max(result), np.min(result), np.mean(result))
         result = (result + 1) / 2
         return [np.rint(_r * 255).astype('uint8') for _r in result]

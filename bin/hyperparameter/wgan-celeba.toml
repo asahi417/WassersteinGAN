@@ -1,11 +1,12 @@
-gradient_clip=0.01
+gradient_clip=0.05
 #gradient_penalty=10
 
 batch=64
-optimizer='adam'
-learning_rate=0.000005
+optimizer='rmsprop'
+learning_rate=0.00005
 n_critic=5
 initializer='truncated_normal'
+overdose=true
 
 [config]
 n_z=100

@@ -110,9 +110,6 @@ class DCGAN:
             tf_record_input, [None] + self.__config['image_shape'], name="input")
 
         self.__learning_rate = tf.placeholder(tf.float32, name='learning_rate')
-        # tf.summary.scalar('meta_learning_rate', self.__learning_rate)
-
-        self.is_training = tf.placeholder_with_default(True, [])
 
         # get random variable
         dynamic_batch = self.__base_model.dynamic_batch_size(self.__input_image)
@@ -295,11 +292,7 @@ class DCGAN:
     def generate_image(self, random_variable=None):
         if random_variable is None:
             random_variable = np.random.randn(self.__batch, self.__config["n_z"])
-        result = self.__session.run(self.__generated_image_dev,
-                                    feed_dict={self.random_samples: random_variable,
-                                               self.is_training: False})
-
-        # print(result.shape, np.max(result), np.min(result), np.mean(result))
+        result = self.__session.run(self.__generated_image_dev, feed_dict={self.random_samples: random_variable})
         result = (result + 1)/2
         return [np.rint(_r * 255).astype('uint8') for _r in result]
 

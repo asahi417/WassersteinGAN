@@ -1,3 +1,5 @@
+""" script to see loss """
+
 import os
 import argparse
 import numpy as np
@@ -15,6 +17,7 @@ def get_options(parser):
     share_param = {'nargs': '?', 'action': 'store', 'const': None, 'choices': None, 'metavar': None}
     parser.add_argument('-m', '--model', help='Model.', required=True, type=str, **share_param)
     parser.add_argument('-v', '--version', help='Version.', required=True, type=int, **share_param)
+    parser.add_argument('--sub_version', help='sub version.', default=None, type=int, **share_param)
     parser.add_argument('--data', help='Dataset.', required=True, type=str, **share_param)
     return parser.parse_args()
 
@@ -27,5 +30,6 @@ if __name__ == '__main__':
         argparse.ArgumentParser(description='This script is ...', formatter_class=argparse.RawTextHelpFormatter))
     _tfrecord, _ckpt, _ = get_path(args.data, args.model)
 
-    stat = np.load('%s/v%i/meta.npz' % (_ckpt, args.version))
+    version = '%i' % args.version if args.sub_version is None else '%i.%i' % (args.version, args.sub_version)
+    stat = np.load('%s/v%s/meta.npz' % (_ckpt, version))
     print(pd.DataFrame(stat['loss'], columns=['G', 'C']))

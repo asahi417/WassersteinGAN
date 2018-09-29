@@ -77,7 +77,9 @@ def create_log(out_file_path=None):
 
 def checkpoint_version(checkpoint_dir: str,
                        config: dict = None,
-                       version: int = None):
+                       version: int = None,
+                       sub_version: int = None,
+                       ):
     """ Checkpoint versioner:
     - return checkpoint dir, which has same hyper parameter (config)
     - return checkpoint dir, which corresponds to the version
@@ -89,7 +91,8 @@ def checkpoint_version(checkpoint_dir: str,
     """
 
     if version is not None:
-        checkpoints = glob('%s/v%i/hyperparameters.json' % (checkpoint_dir, version))
+        version = '%i' % version if sub_version is None else '%i.%i' % (version, sub_version)
+        checkpoints = glob('%s/v%s/hyperparameters.json' % (checkpoint_dir, version))
         if len(checkpoints) == 0:
             raise ValueError('No checkpoint: %s, %s' % (checkpoint_dir, version))
         elif len(checkpoints) > 1:

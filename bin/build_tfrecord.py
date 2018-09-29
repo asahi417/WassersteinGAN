@@ -1,3 +1,5 @@
+""" script to build tfrecord """
+
 import wgan
 import os
 import argparse

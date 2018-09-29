@@ -1,3 +1,5 @@
+""" script to train model """
+
 import wgan
 import toml
 import os
