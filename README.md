@@ -162,14 +162,13 @@ Let's say training model with same hyperaprameters five times:
 - WGAN-GP: Never fail!
     
 WGAN with GP is the most stable model, which also have capacity to produce diversity image with relatively high quality with comparing vanilla WGAN and DCGAN.
-
-### Quality of 
+ 
 
 ### Tips
 Here, I listed a few tips, used in this implementations. 
 While it's hard to train without those tips for DCGAN and vanilla WGAN,
 WGAN-GP does't need any specific tips (it's quite friendly, isn't it?)   
 
-- Advantage for generator in DCGAN
-- Enhance critics training in WGAN (with out GP)
+- [Advantage for generator in DCGAN](https://github.com/asahi417/WassersteinGAN/blob/master/wgan/dcgan.py#L249)
+- [Enhance critics training in vanilla WGAN](https://github.com/asahi417/WassersteinGAN/blob/master/wgan/wgan.py#L255)
 
