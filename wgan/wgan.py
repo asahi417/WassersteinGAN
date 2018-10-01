@@ -143,11 +143,11 @@ class WassersteinGAN:
 
             # Gradient Penalty for critic loss
             if self.__gp is not None:
-                alpha = tf.random_uniform(shape=[dynamic_batch, 1, 1, 1], minval=0., maxval=1.)
-                differences = self.__generated_image - input_image
-                interpolates = input_image + (alpha * differences)
-                logit_interpolate = self.__base_model.critic(interpolates, reuse=True, **self.__config_critic)
-                gradients = tf.gradients(logit_interpolate, [interpolates])[0]
+                epsilon = tf.random_uniform([], 0.0, 1.0)
+                penalty_target = self.__generated_image * (1 - epsilon) - input_image * epsilon
+
+                logit_interpolate = self.__base_model.critic(penalty_target, reuse=True, **self.__config_critic)
+                gradients = tf.gradients(logit_interpolate, penalty_target)[0]
                 slopes = tf.sqrt(tf.reduce_sum(tf.square(gradients), reduction_indices=[1]))
                 gradient_penalty = self.__gp * tf.reduce_mean((slopes - 1.) ** 2)
             else:

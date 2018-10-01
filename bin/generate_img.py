@@ -61,11 +61,12 @@ if __name__ == '__main__':
 
     images = model_instance.generate_image()
 
-    for img in images:
+    for i, img in enumerate(images):
+        if i + 1 > n*m:
+            break
 
         end_x = start_x + 64
         end_y = start_y + 64
-
         canvas[start_y:end_y, start_x:end_x, :] = img
 
         if x < n:
