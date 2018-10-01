@@ -67,6 +67,6 @@ optional arguments:
 # Generated Images
 
 <p align="center">
-  <img src="./img/generated_img/wgan-celeba-v2.1.jpg" width="900">
+  <img src="./bin/img/generated_img/wgan-celeba-v2.1.jpg" width="900">
   <br><i> Arbitrary generated images by WGAN-GP (120 epoch) log</i>
 </p>
