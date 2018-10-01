@@ -111,7 +111,7 @@ DCGAN easily suffers from mode collapse like, usually you find tendency of mode 
 I actually wan't able to train model, which can produce variety of images in my experiments. 
 WGAN with and without GP are really good at avoiding mode collapse even after running large epoch.
 
-***local minima***
+***trapped by local minima***
 
 DCGAN are often trapped by undesired local minima as well as mode collapse.
 Here are some examples from DCGAN trapped by local minima. Once a model get trapped, it would be never improved anymore. 
@@ -120,14 +120,38 @@ Here are some examples from DCGAN trapped by local minima. Once a model get trap
   <img src="./bin/img/generated_img/dcgan-celeba-v1.1.jpg" width="900">
   <img src="./bin/img/generated_img/dcgan-celeba-v1.2.jpg" width="900">
   <img src="./bin/img/generated_img/dcgan-celeba-v1.4.jpg" width="900">
-  <br><i>Fig 5: Examples of local minima (DCGAN) </i>
+  <br><i>Fig 5: Examples of local minima (three separatelly trained DCGAN ending up training with local minima) </i>
 </p>
 
 WGAN with and without GP seems have capacity to escape from those local minima so that I don't have any cases that WGAN trapped by local minima.  
  
-***overfitting***
+***overfitting (too strong critic?)***
 
-Vanilla WGAN (without GP) is likely to be overfitted after 40 epoch. For instance,  
+Vanilla WGAN (without GP) is likely to be overfitted after 40 epoch.
+Even though a model seems properly trained (such as the model produces Fig 2 at epoch 30),
+it suddenly start to generate crappy images and finish training with something like Fig 6.
+
+<p align="center">
+  <img src="./bin/img/generated_img/wgan-celeba-v0.1.jpg" width="900">
+  <br><i>Fig 6: Examples of overfitting (WGAN with epoch 50) </i>
+</p>
+
+It's kinda similar to local minima but unlike trapped by local minima immediately, this phenomena usually allow generator to be trained properly once, then the generator would be messed up after a while.
+
+On the other hand, WGAN-GP have never caused this. From Fig 7, you can see that WGAN-GP actually can generates images with competitive quality even by 60 epoch.
+I have kept training this model for more 60 epoch and attained Fig 1, so WGAN-GP rarely has overfitting problem.  
+
+<p align="center">
+  <img src="./bin/img/generated_img/wgan-celeba-v2.0.jpg" width="900">
+  <br><i>Fig 7: WGAN-GP with epoch 60 </i>
+</p>
+
+In the end, I'm not sure if this can be referred as overfitting so let me know if you have proper name for this type of problem.
+
+***quality***
+
+I have't tried any metrics to evaluate quality of generated image such as inception score.
+By seeing the images, generated from each models (Fig 1 ~3), WGAN-GP is seems producing the best quality-images. 
 
 ***conclusion***
 
@@ -135,7 +159,7 @@ Let's say training model with same hyperaprameters five times:
 
 - DCGAN: three out of five models would fail (one would end up with mode collapse and two would be trapped by local minima).
 - WGAN: two out of five models would fail (two for overfitting)
-- WGAN with GP: Never fail!
+- WGAN-GP: Never fail!
     
 WGAN with GP is the most stable model, which also have capacity to produce diversity image with relatively high quality with comparing vanilla WGAN and DCGAN.
 
@@ -144,7 +168,7 @@ WGAN with GP is the most stable model, which also have capacity to produce diver
 ### Tips
 Here, I listed a few tips, used in this implementations. 
 While it's hard to train without those tips for DCGAN and vanilla WGAN,
-WGAN with GP does't need any specific tips (it's quite friendly, isn't it?)   
+WGAN-GP does't need any specific tips (it's quite friendly, isn't it?)   
 
 - Advantage for generator in DCGAN
 - Enhance critics training in WGAN (with out GP)
