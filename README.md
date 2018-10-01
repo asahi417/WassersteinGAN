@@ -172,3 +172,107 @@ WGAN-GP does't need any specific tips (it's quite friendly, isn't it?)
 - [Advantage for generator in DCGAN](https://github.com/asahi417/WassersteinGAN/blob/master/wgan/dcgan.py#L249)
 - [Enhance critics training in vanilla WGAN](https://github.com/asahi417/WassersteinGAN/blob/master/wgan/wgan.py#L255)
 
+### Hyperparameters
+- WGAN-GP
+```
+{
+  "gradient_penalty": 10,
+  "batch": 128,
+  "optimizer": "adam",
+  "learning_rate": 1e-05,
+  "n_critic": 5,
+  "initializer": "truncated_normal",
+  "config": {
+    "n_z": 100,
+    "image_shape": [
+      64,
+      64,
+      3
+    ]
+  },
+  "config_critic": {
+    "mode": "cnn",
+    "parameter": {
+      "batch_norm": false
+    }
+  },
+  "config_generator": {
+    "mode": "cnn",
+    "parameter": {
+      "batch_norm": true,
+      "batch_norm_decay": 0.99,
+      "batch_norm_scale": true
+    }
+  }
+}
+```
+- WGAN
+```
+{
+  "gradient_clip": 0.05,
+  "batch": 64,
+  "optimizer": "rmsprop",
+  "learning_rate": 5e-05,
+  "n_critic": 5,
+  "initializer": "truncated_normal",
+  "overdose": true,
+  "config": {
+    "n_z": 100,
+    "image_shape": [
+      64,
+      64,
+      3
+    ]
+  },
+  "config_critic": {
+    "mode": "cnn",
+    "parameter": {
+      "batch_norm": true,
+      "batch_norm_decay": 0.99,
+      "batch_norm_scale": true
+    }
+  },
+  "config_generator": {
+    "mode": "cnn",
+    "parameter": {
+      "batch_norm": true,
+      "batch_norm_decay": 0.99,
+      "batch_norm_scale": true
+    }
+  }
+}
+```
+- DCGAN
+```
+{
+  "batch": 64,
+  "optimizer": "adam",
+  "learning_rate": 2e-05,
+  "generator_advantage": 2,
+  "initializer": "truncated_normal",
+  "config": {
+    "n_z": 100,
+    "image_shape": [
+      64,
+      64,
+      3
+    ]
+  },
+  "config_critic": {
+    "mode": "cnn",
+    "parameter": {
+      "batch_norm": true,
+      "batch_norm_decay": 0.99,
+      "batch_norm_scale": true
+    }
+  },
+  "config_generator": {
+    "mode": "cnn",
+    "parameter": {
+      "batch_norm": true,
+      "batch_norm_decay": 0.99,
+      "batch_norm_scale": true
+    }
+  }
+}
+```
